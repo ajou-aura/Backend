@@ -1,5 +1,5 @@
 // AuthService.java
-package sulhoe.ajouhub.service;
+package sulhoe.ajouhub.service.login;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -9,8 +9,6 @@ import sulhoe.ajouhub.config.JwtTokenProvider;
 import sulhoe.ajouhub.dto.login.LoginResponseDto;
 import sulhoe.ajouhub.entity.User;
 import sulhoe.ajouhub.repository.UserRepository;
-
-import java.util.Objects;
 
 @Slf4j
 @Service

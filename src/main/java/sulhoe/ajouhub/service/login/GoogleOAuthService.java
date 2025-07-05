@@ -1,5 +1,5 @@
 // GoogleOAuthService.java
-package sulhoe.ajouhub.service;
+package sulhoe.ajouhub.service.login;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;

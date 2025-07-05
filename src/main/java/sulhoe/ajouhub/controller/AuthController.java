@@ -8,8 +8,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.util.UriComponentsBuilder;
+import sulhoe.ajouhub.dto.ApiResponse;
 import sulhoe.ajouhub.dto.login.LoginResponseDto;
-import sulhoe.ajouhub.service.AuthService;
+import sulhoe.ajouhub.service.login.AuthService;
 
 import java.io.IOException;
 import java.util.Map;
@@ -32,11 +33,10 @@ public class AuthController {
     @Value("${app.frontend-url}")
     private String frontendUrl;
 
-    /** 구글 로그인 시작 */
+    // 구글 로그인 시작
     @GetMapping("/google")
     public void redirectToGoogle(HttpServletResponse res) throws IOException {
-        String url = UriComponentsBuilder
-                .fromUriString("https://accounts.google.com/o/oauth2/v2/auth")
+        String url = UriComponentsBuilder.fromUriString("https://accounts.google.com/o/oauth2/v2/auth")
                 .queryParam("client_id", clientId)
                 .queryParam("redirect_uri", redirectUri)
                 .queryParam("response_type", "code")
@@ -55,10 +55,8 @@ public class AuthController {
         log.debug("[CTRL] OAuth callback received, code={}", code);
 
         LoginResponseDto dto = authService.loginWithGoogle(code);
-
         // 프론트엔드 URL에 토큰을 쿼리로 붙여 리다이렉트
-        String target = UriComponentsBuilder
-                .fromUriString(frontendUrl)
+        String target = UriComponentsBuilder.fromUriString(frontendUrl)
                 .queryParam("accessToken", dto.accessToken())
                 .queryParam("refreshToken", dto.refreshToken())
                 .build().toUriString();
@@ -67,12 +65,24 @@ public class AuthController {
         res.sendRedirect(target);
     }
 
-    /** 리프레시 토큰으로 액세스 토큰만 재발급 */
+    // 리프레시 토큰으로 액세스 토큰만 재발급
     @PostMapping("/refresh")
-    public ResponseEntity<Map<String, String>> refresh(@RequestBody Map<String, String> body) {
+    public ResponseEntity<ApiResponse<Map<String, String>>> refresh(@RequestBody Map<String, String> body) {
         log.debug("[CTRL] Refresh endpoint called with body={}", body);
 
-        String access = authService.refreshAccessToken(body.get("refreshToken"));
-        return ResponseEntity.ok(Map.of("accessToken", access));
+        try {
+            String refreshToken = body.get("refreshToken");
+            if (refreshToken == null) {
+                return ResponseEntity.badRequest().body(
+                        ApiResponse.error(400, "리프레시 토큰이 누락되었습니다.", Map.of("code", "MISSING_REFRESH_TOKEN"))
+                );
+            }
+            String access = authService.refreshAccessToken(refreshToken);
+            return ResponseEntity.ok(ApiResponse.success(Map.of("accessToken", access)));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(
+                    ApiResponse.error(400, "유효하지 않은 토큰입니다.", Map.of("code", "INVALID_REFRESH_TOKEN"))
+            );
+        }
     }
 }

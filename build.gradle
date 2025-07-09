@@ -52,6 +52,10 @@ dependencies {
     // Guava 최신 안전 버전
     implementation 'com.google.guava:guava:32.0.1-jre'
 
+    implementation 'org.jsoup:jsoup:1.15.3' // jsoup
+
+    implementation 'com.google.firebase:firebase-admin:9.4.2' // firebase
+
 }
 
 tasks.named('test') {

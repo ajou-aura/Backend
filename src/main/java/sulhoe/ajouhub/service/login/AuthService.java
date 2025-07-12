@@ -10,6 +10,8 @@ import sulhoe.ajouhub.dto.login.LoginResponseDto;
 import sulhoe.ajouhub.entity.User;
 import sulhoe.ajouhub.repository.UserRepository;
 
+import java.util.Set;
+
 @Slf4j
 @Service
 @RequiredArgsConstructor
@@ -33,25 +35,28 @@ public class AuthService {
                     return u;
                 })
                 .orElseGet(() -> {
-                    User created = userRepository.save(new User(
-                            info.name(), info.email(), info.department()
-                    ));
+                    User created = new User(
+                            info.name(), info.email(), Set.of(info.department())
+                    );
                     log.debug("[AUTH] New user created: id={} email={}", created.getId(), created.getEmail());
                     return created;
                 });
 
 
-        String access  = jwtTokenProvider.createAccessToken(user.getEmail(), user.getName(), user.getDepartment());
+        String access  = jwtTokenProvider.createAccessToken(user.getEmail(), user.getName());
         String refresh = jwtTokenProvider.createRefreshToken(user.getEmail());
         log.debug("[AUTH] Tokens issued: access.length={} refresh.length={}",
                 access.length(), refresh.length());
 
-        // TODO: 리프레시 토큰 저장
+        // 리프레시 토큰 저장 및 회전 초기화
+        user.setRefreshToken(refresh);
+        userRepository.save(user);
+
         return new LoginResponseDto(access, refresh);
     }
 
     @Transactional
-    public String refreshAccessToken(String refreshToken) {
+    public LoginResponseDto refreshAccessToken(String refreshToken) {
         log.debug("[AUTH] refreshAccessToken, refreshToken={}", refreshToken);
 
         if (!jwtTokenProvider.validateToken(refreshToken)) {
@@ -62,10 +67,20 @@ public class AuthService {
                 .orElseThrow(() -> new RuntimeException("User not found: " + email));
         log.debug("[AUTH] Refreshing for user: {}", email);
 
+        // DB 저장 토큰과 일치 여부 검사
+        if (!refreshToken.equals(user.getRefreshToken())) {
+            throw new RuntimeException("Refresh token mismatch");
+        }
+
+        // 토큰 회전: 새로운 리프레시 토큰 발급
+        String newRefresh = jwtTokenProvider.createRefreshToken(email);
+        user.setRefreshToken(newRefresh);
+        userRepository.save(user);
+
         String newAccess = jwtTokenProvider.createAccessToken(
-                user.getEmail(), user.getName(), user.getDepartment());
+                user.getEmail(), user.getName());
         log.debug("[AUTH] New access token length: {}", newAccess.length());
 
-        return newAccess;
+        return new LoginResponseDto(newAccess, newRefresh);
     }
 }

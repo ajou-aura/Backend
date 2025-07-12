@@ -8,7 +8,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
-import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 import java.util.Date;
 
@@ -22,6 +21,7 @@ public class JwtTokenProvider {
     private SecretKey signingKey;
     private static final long ACCESS_EXP  = 1000L * 60 * 60;        // 1시간
     private static final long REFRESH_EXP = 1000L * 60 * 60 * 24;   // 1일
+    public static final long REFRESH_EXPIRY_SECONDS = REFRESH_EXP / 1000;  // 쿠키 maxAge용
 
     @PostConstruct
     public void init() {
@@ -33,18 +33,17 @@ public class JwtTokenProvider {
     /**
      * Access Token: email(subject), name, department 클레임 포함
      */
-    public String createAccessToken(String email, String name, String department) {
+    public String createAccessToken(String email, String name) {
         long now = System.currentTimeMillis();
         String token = Jwts.builder()
                 .setSubject(email)                          // sub = 이메일
                 .setIssuedAt(new Date(now))                 // iat
                 .setExpiration(new Date(now + ACCESS_EXP))  // exp
                 .claim("name", name)                        // 사용자 이름
-                .claim("dept", department)                  // 학과 (필요 시)
                 .signWith(signingKey, SignatureAlgorithm.HS256)
                 .compact();
 
-        log.debug("[JWT-ACCESS] sub={} name={} dept={} exp={}", email, name, department,
+        log.debug("[JWT-ACCESS] sub={} name={} exp={}", email, name,
                 new Date(now + ACCESS_EXP));
         return token;
     }

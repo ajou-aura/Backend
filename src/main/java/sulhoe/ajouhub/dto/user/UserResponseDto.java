@@ -1,9 +1,10 @@
 package sulhoe.ajouhub.dto.user;
 
+import java.util.Set;
+
 public record UserResponseDto(
-        Long id,
         String name,
         String email,
-        String department
+        Set<String> departments
 ) {
 }

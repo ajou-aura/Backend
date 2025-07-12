@@ -25,8 +25,16 @@ public class User {
     @Column(nullable = false, unique = true)
     private String email;
 
-    @Column
-    private String department;
+    @Column(nullable = false)
+    private String refreshToken;
+
+    @ElementCollection(fetch = FetchType.EAGER)
+    @CollectionTable(
+            name = "user_departments",
+            joinColumns = @JoinColumn(name = "user_id")
+    )
+    @Column(name = "department")
+    private Set<String> departments = new HashSet<>();
 
     @ManyToMany
     @JoinTable(
@@ -36,9 +44,9 @@ public class User {
     )
     private Set<Notice> savedNotices = new HashSet<>();
 
-    public User(String name, String email, String department) {
+    public User(String name, String email, Set<String> departments) {
         this.name = name;
         this.email = email;
-        this.department = department;
+        this.departments = departments;
     }
 }

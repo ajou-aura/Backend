@@ -79,7 +79,7 @@ public class NoticeScrapeService {
                 break;
             }
 
-            pageIdx++;
+            pageIdx += 10;
         } while (true);
 
         // 4) 작성일 별도 조회

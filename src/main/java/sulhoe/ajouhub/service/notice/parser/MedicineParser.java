@@ -15,6 +15,11 @@ public class MedicineParser implements NoticeParser {
     private static final Pattern NO_PATTERN = Pattern.compile("no\\s*:\\s*(\\d+)");
 
     @Override
+    public int getStep(){
+        return 1;
+    }
+
+    @Override
     public String buildPageUrl(String baseUrl, int pageIdx) {
         return baseUrl + "?page=" + (pageIdx + 1);
     }

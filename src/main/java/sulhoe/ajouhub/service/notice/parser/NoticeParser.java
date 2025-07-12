@@ -6,6 +6,10 @@ import org.jsoup.select.Elements;
 import sulhoe.ajouhub.entity.Notice;
 
 public interface NoticeParser {
+    default int getStep(){
+        return 10;
+    };
+
     default Elements selectFixedRows(Document doc) {
         return doc.select("table tbody tr.b-top-box");
     }

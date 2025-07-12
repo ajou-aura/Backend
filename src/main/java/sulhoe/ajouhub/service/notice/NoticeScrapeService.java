@@ -54,6 +54,8 @@ public class NoticeScrapeService {
 
         // 3) 일반 페이지 (최소 1회, fullLoad일 때만 계속)
         int pageIdx = 0;
+        int step = parser.getStep();
+        int count = 0;
         do {
             String pagedUrl = parser.buildPageUrl(url, pageIdx);
             logger.info("Scraping page: {}", pagedUrl);
@@ -65,11 +67,11 @@ public class NoticeScrapeService {
                 break;
             }
             generalRows.forEach(row -> {
-                Notice n =parser.parseRow(row, false, url);
+                Notice n = parser.parseRow(row, false, url);
                 n.setType(type);
                 scraped.add(n);
             });
-            if (!fullLoad) { // 전체 로드가 아니라면 1페이지만
+            if (!fullLoad && count >= 2) { // 전체 로드가 아니라면 1페이지만
                 logger.info("Not fullLoad; only first page needed. Breaking.");
                 break;
             }
@@ -79,7 +81,8 @@ public class NoticeScrapeService {
                 break;
             }
 
-            pageIdx += 10;
+            pageIdx += step;
+            count++;
         } while (true);
 
         // 4) 작성일 별도 조회

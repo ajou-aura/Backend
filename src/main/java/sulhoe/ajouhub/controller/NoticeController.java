@@ -24,7 +24,7 @@ public class NoticeController {
     /**
      * 전체/카테고리/검색 + 페이징을 한 번에 처리
      *
-     *   GET /notices/page?search=등록&page=0&size=5&sort=date,desc
+     *   GET /notices/page?type=""search=type&page=0&size=5&sort=date,desc
      *   [&type=학사]
      *   [&search=등록]
      */

@@ -36,7 +36,7 @@ public class GlobalExceptionHandler {
                 ApiResponse.error(500, "서버 내부 오류가 발생했습니다.", Map.of(
                         "errors", List.of(Map.of(
                                 "code", "INTERNAL_SERVER_ERROR",
-                                "message", ex.getMessage()
+                                "message", "예기치 않은 오류가 발생했습니다. 관리자에게 문의하세요."
                         ))
                 ))
         );

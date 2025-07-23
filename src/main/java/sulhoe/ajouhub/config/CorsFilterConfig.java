@@ -1,0 +1,29 @@
+package sulhoe.ajouhub.config;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.*;
+import org.springframework.web.cors.*;
+import org.springframework.web.filter.CorsFilter;
+
+import java.util.List;
+
+@Configuration
+public class CorsFilterConfig {
+
+    @Value("${cors.allowed-origins}")
+    private String[] allowedOrigins;
+
+    @Bean
+    public CorsFilter corsFilter() {
+        CorsConfiguration cfg = new CorsConfiguration();
+        cfg.setAllowedOrigins(List.of(allowedOrigins));
+        cfg.setAllowedMethods(List.of("GET","POST","PUT","DELETE","OPTIONS"));
+        cfg.setAllowedHeaders(List.of("*"));
+        cfg.setAllowCredentials(true);
+
+        UrlBasedCorsConfigurationSource src = new UrlBasedCorsConfigurationSource();
+        src.registerCorsConfiguration("/**", cfg);
+        // Spring Security 필터보다 앞서 동작하도록 CorsFilter를 빈으로 등록
+        return new CorsFilter(src);
+    }
+}

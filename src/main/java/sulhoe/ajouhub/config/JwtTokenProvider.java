@@ -100,8 +100,4 @@ public class JwtTokenProvider {
     public String getName(String token) {
         return getClaims(token).get("name", String.class);
     }
-
-    public String getDepartment(String token) {
-        return getClaims(token).get("dept", String.class);
-    }
 }

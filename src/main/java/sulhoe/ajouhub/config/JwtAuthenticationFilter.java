@@ -43,14 +43,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     // JWT에서 클레임 꺼내기
                     String email = jwt.getEmail(token);
                     String name  = jwt.getName(token);
-                    String dept  = jwt.getDepartment(token);
-                    log.debug("[FILTER] Authenticated user: {} / {} / {}", email, name, dept);
+                    log.debug("[FILTER] Authenticated user: {} / {}", email, name);
 
                     // principal 에 Map 형태로 담아둬도 되고, 필요하면 별도 DTO를 만들어도 좋습니다.
                     Map<String,String> principal = Map.of(
                             "email", email,
-                            "name",  name,
-                            "dept",  dept
+                            "name",  name
                     );
 
                     // 권한은 ROLE_USER 하나만 줍니다.
@@ -65,7 +63,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(req));
                     SecurityContextHolder.getContext().setAuthentication(auth);
 
-                    log.debug("JWT 인증 성공: {} / {} / {}", email, name, dept);
+                    log.debug("JWT 인증 성공: {} / {} /", email, name);
                 }
             } catch (JwtException e) {
                 log.warn("[FILTER] JWT 검증 실패: {}", e.getMessage());

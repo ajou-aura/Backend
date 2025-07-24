@@ -20,6 +20,7 @@ public class AuthService {
     private final JwtTokenProvider jwtTokenProvider;
     private final UserRepository userRepository;
 
+    private boolean isSignUp;
     @Transactional
     public LoginResponseDto loginWithGoogle(String code) {
         log.debug("[AUTH] loginWithGoogle, code={}", code);
@@ -30,11 +31,13 @@ public class AuthService {
 
         User user = userRepository.findByEmail(info.email())
                 .map(u -> {
+                    isSignUp = false;
                     u.setName(info.name());
                     log.debug("[AUTH] Existing user, updated name to {}", info.name());
                     return u;
                 })
                 .orElseGet(() -> {
+                    isSignUp = true;
                     User created = new User(
                             info.name(), info.email(), Set.of(info.department())
                     );
@@ -52,7 +55,7 @@ public class AuthService {
         user.setRefreshToken(refresh);
         userRepository.save(user);
 
-        return new LoginResponseDto(access, refresh);
+        return new LoginResponseDto(access, refresh, isSignUp);
     }
 
     @Transactional
@@ -81,6 +84,6 @@ public class AuthService {
                 user.getEmail(), user.getName());
         log.debug("[AUTH] New access token length: {}", newAccess.length());
 
-        return new LoginResponseDto(newAccess, newRefresh);
+        return new LoginResponseDto(newAccess, newRefresh, false);
     }
 }

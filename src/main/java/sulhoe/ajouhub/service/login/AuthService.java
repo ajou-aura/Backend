@@ -11,6 +11,7 @@ import sulhoe.ajouhub.entity.User;
 import sulhoe.ajouhub.repository.UserRepository;
 
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Slf4j
 @Service
@@ -20,7 +21,6 @@ public class AuthService {
     private final JwtTokenProvider jwtTokenProvider;
     private final UserRepository userRepository;
 
-    private boolean isSignUp;
     @Transactional
     public LoginResponseDto loginWithGoogle(String code) {
         log.debug("[AUTH] loginWithGoogle, code={}", code);
@@ -29,25 +29,36 @@ public class AuthService {
         log.debug("[AUTH] Google user info: name={} email={} dept={}",
                 info.name(), info.email(), info.department());
 
-        User user = userRepository.findByEmail(info.email())
-                .map(u -> {
-                    isSignUp = false;
-                    u.setName(info.name());
-                    log.debug("[AUTH] Existing user, updated name to {}", info.name());
-                    return u;
-                })
-                .orElseGet(() -> {
-                    isSignUp = true;
-                    User created = new User(
-                            info.name(), info.email(), Set.of(info.department())
-                    );
-                    log.debug("[AUTH] New user created: id={} email={}", created.getId(), created.getEmail());
-                    return created;
-                });
+        // 이메일로 기존 유저 조회
+        var optUser = userRepository.findByEmail(info.email());
+        boolean isSignUp = optUser.isEmpty();
+
+        User user;
+        if (isSignUp) {
+            // 신규 가입
+            user = new User(
+                    info.name(),
+                    info.email(),
+                    Set.of(info.department())
+            );
+            // 최초 리프레시 토큰 생성
+            String initialRefresh = jwtTokenProvider.createRefreshToken(info.email());
+            user.setRefreshToken(initialRefresh);
+            user = userRepository.save(user);
+            log.debug("[AUTH] New user created and refreshToken set");
+        } else {
+            // 기존 사용자
+            user = optUser.get();
+            // 이름이 바뀌었을 수도 있으니 업데이트
+            user.setName(info.name());
+            user = userRepository.save(user);
+            log.debug("[AUTH] Existing user updated");
+        }
 
 
         String access  = jwtTokenProvider.createAccessToken(user.getEmail(), user.getName());
-        String refresh = jwtTokenProvider.createRefreshToken(user.getEmail());
+        String refresh = user.getRefreshToken();
+
         log.debug("[AUTH] Tokens issued: access.length={} refresh.length={}",
                 access.length(), refresh.length());
 

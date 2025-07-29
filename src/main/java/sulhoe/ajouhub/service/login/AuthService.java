@@ -10,6 +10,7 @@ import sulhoe.ajouhub.dto.login.LoginResponseDto;
 import sulhoe.ajouhub.entity.User;
 import sulhoe.ajouhub.repository.UserRepository;
 
+import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -36,10 +37,13 @@ public class AuthService {
         User user;
         if (isSignUp) {
             // 신규 가입
+            Set<String> depts = new HashSet<>();
+            depts.add(info.department());
+
             user = new User(
                     info.name(),
                     info.email(),
-                    Set.of(info.department())
+                    depts
             );
             // 최초 리프레시 토큰 생성
             String initialRefresh = jwtTokenProvider.createRefreshToken(info.email());

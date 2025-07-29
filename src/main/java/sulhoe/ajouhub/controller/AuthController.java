@@ -84,7 +84,13 @@ public class AuthController {
         try {
             var dto = authService.refreshAccessToken(refreshToken);
             // 새로운 리프레시 토큰 쿠키로 설정
-            ResponseCookie cookie = ResponseCookie.from("refreshToken", dto.refreshToken()).httpOnly(true).secure(true).path("/").maxAge(JwtTokenProvider.REFRESH_EXPIRY_SECONDS).build();
+            ResponseCookie cookie = ResponseCookie.from("refreshToken", dto.refreshToken())
+                    .httpOnly(true)
+                    .secure(false)
+                    .sameSite("None")
+                    .path("/")
+                    .maxAge(JwtTokenProvider.REFRESH_EXPIRY_SECONDS)
+                    .build();
             response.setHeader(HttpHeaders.SET_COOKIE, cookie.toString());
 
             return ResponseEntity.ok(ApiResponse.success(Map.of("accessToken", dto.accessToken())));

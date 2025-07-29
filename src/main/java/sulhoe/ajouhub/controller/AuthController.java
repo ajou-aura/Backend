@@ -57,7 +57,7 @@ public class AuthController {
         // refresh token은 쿠키로
         ResponseCookie cookie = ResponseCookie.from("refreshToken", dto.refreshToken())
                 .httpOnly(true)
-                .secure(false)
+                .secure(true)
                 .sameSite("None")
                 .path("/")
                 .maxAge(JwtTokenProvider.REFRESH_EXPIRY_SECONDS)
@@ -86,7 +86,7 @@ public class AuthController {
             // 새로운 리프레시 토큰 쿠키로 설정
             ResponseCookie cookie = ResponseCookie.from("refreshToken", dto.refreshToken())
                     .httpOnly(true)
-                    .secure(false)
+                    .secure(true)
                     .sameSite("None")
                     .path("/")
                     .maxAge(JwtTokenProvider.REFRESH_EXPIRY_SECONDS)

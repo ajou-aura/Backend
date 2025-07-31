@@ -55,8 +55,8 @@ public class NoticeScrapeService {
         // 3) 일반 페이지 (최소 1회, fullLoad일 때만 계속)
         int pageIdx = 0;
         int step = parser.getStep();
-        int count = 0;
-        do {
+        int pagesFetched = 0;
+        while(true) {
             String pagedUrl = parser.buildPageUrl(url, pageIdx);
             logger.info("Scraping page: {}", pagedUrl);
             Document pagedDoc = Jsoup.connect(pagedUrl).get();
@@ -71,19 +71,20 @@ public class NoticeScrapeService {
                 n.setType(type);
                 scraped.add(n);
             });
-            if (!fullLoad && count >= 2) { // 전체 로드가 아니라면 1페이지만
+
+            pagesFetched++;
+            pageIdx += step;
+
+            if (!fullLoad && pagesFetched >= 3) { // 전체 로드가 아니라면 1페이지만
                 logger.info("Not fullLoad; only first page needed. Breaking.");
                 break;
             }
 
-            if (generalRows.size() < 10) { // 마지막 페이지 판단: 가져온 row 수가 articleLimit 미만이면 종료
+            if (fullLoad && generalRows.size() < step) { // 마지막 페이지 판단: 가져온 row 수가 articleLimit 미만이면 종료
                 logger.info("Last page detected (rows < 10). Breaking.");
                 break;
             }
-
-            pageIdx += step;
-            count++;
-        } while (true);
+        }
 
         // 4) 작성일 별도 조회
         if (noticeConfig.getCategoriesRequirePostedDate().contains(type)) {

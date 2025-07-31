@@ -54,18 +54,14 @@ public class AuthController {
 
         LoginResponseDto dto = authService.loginWithGoogle(code);
 
-        boolean local  = request.getServerName().equals("localhost") || request.getServerName().startsWith("127.");
-
         // refresh token은 쿠키로
         ResponseCookie cookie = ResponseCookie.from("refreshToken", dto.refreshToken())
                 .httpOnly(true)
-                .secure(!local)                    // 로컬: false, 운영: true
-                .sameSite(local ? "Lax" : "None")  // Lax는 Secure 필요 없음
+                .secure(true)
+                .sameSite("None")
                 .path("/")
                 .maxAge(JwtTokenProvider.REFRESH_EXPIRY_SECONDS)
                 .build();
-
-        log.debug("🍪 Set-Cookie → {}", cookie);   // 실제 속성 확인
         res.setHeader(HttpHeaders.SET_COOKIE, cookie.toString());
 
         // 프론트엔드 URL에 토큰을 쿼리로 붙여 리다이렉트

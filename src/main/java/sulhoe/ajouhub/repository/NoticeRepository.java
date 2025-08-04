@@ -12,13 +12,13 @@ public interface NoticeRepository extends JpaRepository<Notice, UUID> {
     Optional<Notice> findByLink(String link);
 
     // 카테고리 페이징
-    Page<Notice> findByCategory(String category, Pageable pageable);
+    Page<Notice> findByType(String type, Pageable pageable);
 
     // 제목 검색  페이징 (대소문자 무시, 부분일치)
     Page<Notice> findByTitleContainingIgnoreCase(String title, Pageable pageable);
 
     // 카테고리 + 제목 검색  페이징
-    Page<Notice> findByCategoryAndTitleContainingIgnoreCase(String category, String title, Pageable pageable);
+    Page<Notice> findByTypeAndTitleContainingIgnoreCase(String type, String title, Pageable pageable);
 
-    boolean existsByType(String category);
+    boolean existsByType(String type);
 }

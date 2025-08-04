@@ -39,10 +39,10 @@ public class NoticeController {
         try {
             if (type != null && search != null) {
                 pages = noticeRepository
-                        .findByCategoryAndTitleContainingIgnoreCase(type, search, pageable);
+                        .findByTypeAndTitleContainingIgnoreCase(type, search, pageable);
             }
             else if (type != null) {
-                pages = noticeRepository.findByCategory(type, pageable);
+                pages = noticeRepository.findByType(type, pageable);
             }
             else if (search != null) {
                 pages = noticeRepository.findByTitleContainingIgnoreCase(search, pageable);

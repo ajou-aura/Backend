@@ -17,7 +17,7 @@ public class DefaultParser implements NoticeParser {
         Element a = row.selectFirst("td a");
         String title = Objects.requireNonNull(a).text();
         String articleNo = a.attr("href").split("articleNo=")[1].split("&")[0];
-        String link = baseUrl + "?mode=view&articleNo=" + articleNo;
+        String link = baseUrl + (baseUrl.contains("?") ? "&" : "?") + "mode=view&articleNo=" + articleNo;
         String dept = cols.get(4).text();
         String date = cols.get(5).text();
         return new Notice(number, category, title, dept, date, link);

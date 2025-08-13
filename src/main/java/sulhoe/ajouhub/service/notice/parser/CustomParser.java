@@ -17,7 +17,7 @@ public class CustomParser implements NoticeParser {
         Element a = cols.get(1).selectFirst("a");
         String title = Objects.requireNonNull(a).text();
         String articleNo = a.attr("href").split("articleNo=")[1].split("&")[0];
-        String link = baseUrl + "?mode=view&articleNo=" + articleNo;
+        String link = baseUrl + (baseUrl.contains("?") ? "&" : "?") + "mode=view&articleNo=" + articleNo;
         String dept = cols.get(3).text();
         String date = cols.get(4).text();
         return new Notice(number, category, title, dept, date, link);

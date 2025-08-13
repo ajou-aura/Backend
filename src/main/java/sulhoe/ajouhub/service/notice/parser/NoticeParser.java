@@ -18,9 +18,10 @@ public interface NoticeParser {
         return doc.select("table tbody tr:not(.b-top-box):not(:has(td[colspan]))");
     }
 
-    // ScrapeService 에서 '다음 페이지' URL 을 만들 때 사용
+    // 기본 페이지 URL 빌더: baseUrl의 쿼리 유무에 따라 ? / & 분기
     default String buildPageUrl(String baseUrl, int pageIdx) {
-        return baseUrl + "?mode=list&&articleLimit=10&article.offset=" + pageIdx;
+        String sep = baseUrl.contains("?") ? "&" : "?";
+        return baseUrl + sep + "mode=list&articleLimit=10&article.offset=" + pageIdx;
     }
 
     // 한 행(row) 을 Notice 로 파싱

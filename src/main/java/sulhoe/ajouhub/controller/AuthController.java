@@ -36,6 +36,9 @@ public class AuthController {
     @Value("${app.frontend-url}")
     private String frontendUrl;
 
+    @Value("${app.is-prod:false}") // 배포 환경
+    private boolean isProd;
+
     // 구글 로그인 시작
     @GetMapping("/google")
     public void redirectToGoogle(HttpServletResponse res) throws IOException {
@@ -53,32 +56,42 @@ public class AuthController {
         log.debug("[CTRL] OAuth callback received, code={}", code);
 
         LoginResponseDto dto = authService.loginWithGoogle(code);
+        ResponseCookie cookie = ResponseCookie.from("refreshToken", dto.refreshToken())
+                .httpOnly(true)
+                .secure(isProd)                     // prod:true, dev:false
+                .sameSite(isProd ? "None" : "Lax")  // prod:None, dev:Lax
+                .path("/")
+                .maxAge(JwtTokenProvider.REFRESH_EXPIRY_SECONDS)
+                .build();
+        res.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
 
         // 프론트엔드 URL에 토큰을 쿼리로 붙여 리다이렉트
         String target = UriComponentsBuilder
                 .fromUriString(frontendUrl)
                 .queryParam("accessToken", dto.accessToken())
-                .queryParam("refreshToken", dto.refreshToken())
                 .queryParam("signUp", dto.signUp())
                 .build().toUriString();
 
         log.debug("[CTRL] Redirecting back to frontend with tokens: {}", target);
-        res.sendRedirect(target);
+        res.sendRedirect(target); // 303
     }
 
     // 리프레시 토큰으로 액세스 토큰만 재발급
     @PostMapping("/refresh")
-    public ResponseEntity<ApiResponse<Map<String, String>>> refresh(@CookieValue(value = "refreshToken", required = false) String refreshToken, HttpServletResponse response) {
+    public ResponseEntity<ApiResponse<Map<String, String>>> refresh(
+            @CookieValue(value = "refreshToken", required = false) String refreshToken,
+            HttpServletResponse response) {
         if (refreshToken == null) {
-            return ResponseEntity.badRequest().body(ApiResponse.error(400, "리프레시 토큰이 누락되었습니다.", Map.of("code", "MISSING_REFRESH_TOKEN")));
+            return ResponseEntity.badRequest().
+                    body(ApiResponse.error(400, "리프레시 토큰이 누락되었습니다.", Map.of("code", "MISSING_REFRESH_TOKEN")));
         }
         try {
             var dto = authService.refreshAccessToken(refreshToken);
             // 새로운 리프레시 토큰 쿠키로 설정
             ResponseCookie cookie = ResponseCookie.from("refreshToken", dto.refreshToken())
                     .httpOnly(true)
-                    .secure(true)
-                    .sameSite("None")
+                    .secure(isProd)
+                    .sameSite(isProd ? "None" : "Lax")
                     .path("/")
                     .maxAge(JwtTokenProvider.REFRESH_EXPIRY_SECONDS)
                     .build();

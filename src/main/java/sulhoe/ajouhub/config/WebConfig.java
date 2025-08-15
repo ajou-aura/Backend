@@ -4,7 +4,9 @@ import jakarta.servlet.*;
 import jakarta.servlet.http.*;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.*;
+import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.method.HandlerTypePredicate;
 import org.springframework.web.servlet.config.annotation.*;
 
 import java.io.IOException;
@@ -18,6 +20,12 @@ public class WebConfig implements WebMvcConfigurer {
     @Bean
     RestTemplate restTemplate() {
         return new RestTemplate();
+    }
+
+    @Override
+    public void configurePathMatch(PathMatchConfigurer configurer) {
+        // 모든 @RestController 에 /api 프리픽스 적용
+        configurer.addPathPrefix("/api", HandlerTypePredicate.forAnnotation(RestController.class));
     }
 
     @Override

@@ -21,65 +21,73 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class UserService {
-    private final JwtTokenProvider jwt;
     private final UserRepository userRepository;
     private final NoticeRepository noticeRepository;
 
-    public UserResponseDto getUserInfo(String token) {
-        // 1) 토큰 검사 및 사용자 조회
-        User user = findUserByToken(token);
-
-        // 2) DTO로 매핑하여 반환
+    @Transactional(readOnly = true)
+    public UserResponseDto getUserInfoByEmail(String email) {
+        User user = findUserByEmail(email);
+        log.debug("[SVC][USER-INFO] email={} name={}", user.getEmail(), user.getName());
         return new UserResponseDto(user.getName(), user.getEmail(), user.getDepartments());
     }
 
     @Transactional(readOnly = true)
-    public Set<String> getDepartments(String token) {
-        return findUserByToken(token).getDepartments();
+    public Set<String> getDepartmentsByEmail(String email) {
+        User user = findUserByEmail(email);
+        log.debug("[SVC][DEPTS] 조회: email={}, count={}", email, user.getDepartments().size());
+        return user.getDepartments();
     }
 
     @Transactional
-    public void addDepartment(String token, String dept) {
-        User user = findUserByToken(token);
-        user.getDepartments().add(dept);
+    public void addDepartmentByEmail(String email, String dept) {
+        User user = findUserByEmail(email);
+        boolean added = user.getDepartments().add(dept);
         userRepository.save(user);
+        log.info("[SVC][DEPTS] 추가: email={}, dept={}, added={}", email, dept, added);
     }
 
     @Transactional
-    public void removeDepartment(String token, String dept) {
-        User user = findUserByToken(token);
-        user.getDepartments().remove(dept);
+    public void removeDepartmentByEmail(String email, String dept) {
+        User user = findUserByEmail(email);
+        boolean removed = user.getDepartments().remove(dept);
         userRepository.save(user);
+        log.info("[SVC][DEPTS] 삭제: email={}, dept={}, removed={}", email, dept, removed);
     }
 
     @Transactional
-    public void saveNotice(String token, UUID noticeId) {
-        User user = findUserByToken(token);
-        Notice notice = noticeRepository.findById(noticeId).orElseThrow(() -> new IllegalArgumentException("공지사항을 찾을 수 없습니다: " + noticeId));
-        user.getSavedNotices().add(notice);
+    public void saveNoticeByEmail(String email, UUID noticeId) {
+        User user = findUserByEmail(email);
+        Notice notice = noticeRepository.findById(noticeId)
+                .orElseThrow(() -> new IllegalArgumentException("공지사항을 찾을 수 없습니다: " + noticeId));
+        boolean added = user.getSavedNotices().add(notice);
         userRepository.save(user);
+        log.info("[SVC][BOOKMARK] 추가: email={}, noticeId={}, added={}", email, noticeId, added);
     }
 
     @Transactional
-    public void removeSavedNotice(String token, UUID noticeId) {
-        User user = findUserByToken(token);
-        Notice notice = noticeRepository.findById(noticeId).orElseThrow(() -> new IllegalArgumentException("공지사항을 찾을 수 없습니다: " + noticeId));
-        user.getSavedNotices().remove(notice);
+    public void removeSavedNoticeByEmail(String email, UUID noticeId) {
+        User user = findUserByEmail(email);
+        Notice notice = noticeRepository.findById(noticeId)
+                .orElseThrow(() -> new IllegalArgumentException("공지사항을 찾을 수 없습니다: " + noticeId));
+        boolean removed = user.getSavedNotices().remove(notice);
         userRepository.save(user);
+        log.info("[SVC][BOOKMARK] 삭제: email={}, noticeId={}, removed={}", email, noticeId, removed);
     }
 
     @Transactional(readOnly = true)
-    public List<NoticeDto> getSavedNotices(String token) {
-        User user = findUserByToken(token);
-        return user.getSavedNotices().stream().map(NoticeDto::fromEntity).toList();
+    public List<NoticeDto> getSavedNoticesByEmail(String email) {
+        User user = findUserByEmail(email);
+        List<NoticeDto> list = user.getSavedNotices().stream().map(NoticeDto::fromEntity).toList();
+        log.debug("[SVC][BOOKMARK] 조회: email={}, count={}", email, list.size());
+        return list;
     }
 
-    // 공통: 토큰 → User 조회
-    private User findUserByToken(String token) {
-        if (!jwt.validateToken(token)) {
-            throw new JwtException("Invalid token.");
-        }
-        String email = jwt.getEmail(token);
-        return userRepository.findByEmail(email).orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다: " + email));
+    /** 공통: 이메일로 사용자 조회 + 로그 */
+    private User findUserByEmail(String email) {
+        return userRepository.findByEmail(email)
+                .orElseThrow(() -> {
+                    log.warn("[SVC][USER] 미존재: email={}", email);
+                    return new IllegalArgumentException("사용자를 찾을 수 없습니다: " + email);
+                });
     }
 }

@@ -3,6 +3,7 @@ package sulhoe.aura.config;
 import io.jsonwebtoken.JwtException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
+import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
@@ -15,8 +16,10 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 @Slf4j
 @Component
@@ -25,6 +28,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final JwtTokenProvider jwt;
     private static final String HEADER = "Authorization";
     private static final String PREFIX = "Bearer ";
+    private static final String WEB_COOKIE = "WEB_SESSION";
 
     @Override
     protected void doFilterInternal(HttpServletRequest req,
@@ -32,11 +36,21 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                                     FilterChain chain)
             throws ServletException, IOException {
 
+        String token = null;
         String header = req.getHeader(HEADER);
         log.trace("[FILTER] Authorization header: {}", header);
 
         if (header != null && header.startsWith(PREFIX)) {
-            String token = header.substring(PREFIX.length());
+            token = header.substring(PREFIX.length());
+        } else {
+            // 2) 대안: 헤더가 없으면 WEB_SESSION 쿠키에서 JWT 읽기(웹/웹뷰)
+            Cookie[] cookies = Optional.ofNullable(req.getCookies()).orElse(new Cookie[0]);
+            token = Arrays.stream(cookies)
+                    .filter(c -> WEB_COOKIE.equals(c.getName()))
+                    .map(Cookie::getValue)
+                    .findFirst().orElse(null);
+        }
+        if (token != null) {
             try {
                 if (jwt.validateToken(token)) {
                     // JWT에서 클레임 꺼내기
@@ -44,11 +58,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     String name  = jwt.getName(token);
                     log.debug("[FILTER] Authenticated user: {} / {}", email, name);
 
-                    // principal 에 Map 형태로 담아둬도 되고, 필요하면 별도 DTO를 만들어도 좋습니다.
-                    Map<String,String> principal = Map.of(
-                            "email", email,
-                            "name",  name
-                    );
+                    Map<String,String> principal = Map.of("email", email,"name", name);
 
                     // 권한은 ROLE_USER 하나만 줍니다.
                     List<SimpleGrantedAuthority> auths =

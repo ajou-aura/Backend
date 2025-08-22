@@ -38,7 +38,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
         String token = null;
         String header = req.getHeader(HEADER);
-        log.trace("[FILTER] Authorization header: {}", header);
+        log.debug("[FILTER] Authorization header: {}", header);
 
         if (header != null && header.startsWith(PREFIX)) {
             token = header.substring(PREFIX.length());
@@ -72,14 +72,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     auth.setDetails(new WebAuthenticationDetailsSource().buildDetails(req));
                     SecurityContextHolder.getContext().setAuthentication(auth);
 
-                    log.debug("JWT 인증 성공: {} / {} /", email, name);
+                    log.info("JWT 인증 성공: {} / {} /", email, name);
                 }
             } catch (JwtException e) {
                 log.warn("[FILTER] JWT 검증 실패: {}", e.getMessage());
             }
         }
         else {
-            log.trace("[FILTER] No Bearer token, skipping authentication");
+            log.debug("[FILTER] No Bearer token, skipping authentication");
         }
 
         chain.doFilter(req, res);

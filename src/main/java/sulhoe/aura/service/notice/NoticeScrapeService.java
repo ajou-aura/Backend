@@ -38,12 +38,12 @@ public class NoticeScrapeService {
 
     public void scrapeNotices(String url, String type) throws IOException {
         boolean fullLoad = !repo.existsByType(type);
-        logger.info("[{}] scrapeNotices: fullLoad={}", type, fullLoad);
-        logger.info("[Info] Start scraping: {}", url);
+        logger.debug("[{}] scrapeNotices: fullLoad={}", type, fullLoad);
+        logger.debug("[Debug] Start scraping: {}", url);
 
         // 1) 파서 선택
         String parserBean = noticeConfig.getParser().getOrDefault(type, noticeConfig.getParser().get("default"));
-        logger.info("[Info] Parser: {}", parserBean);
+        logger.debug("[Info] Parser: {}", parserBean);
         NoticeParser parser = ctx.getBean(parserBean, NoticeParser.class);
 
         List<Notice> scraped = new ArrayList<>();
@@ -51,7 +51,7 @@ public class NoticeScrapeService {
         // 2) 첫 페이지(고정 공지)
         Document doc = fetchWithLog(url, type + ":first");
         Elements fixedRows = parser.selectFixedRows(doc);
-        logger.info("[{}] fixedRows={}", type, fixedRows.size());
+        logger.debug("[{}] fixedRows={}", type, fixedRows.size());
 
         for (Element row : fixedRows) {
             try {
@@ -73,14 +73,14 @@ public class NoticeScrapeService {
 
         while (true) {
             String pagedUrl = parser.buildPageUrl(url, pageIdx);
-            logger.info("[{}] Scraping page: {}", type, pagedUrl);
+            logger.debug("[{}] Scraping page: {}", type, pagedUrl);
 
             Document pagedDoc = fetchWithLog(pagedUrl, type + ":page-" + pageIdx);
             Elements generalRows = parser.selectGeneralRows(pagedDoc);
-            logger.info("[{}] generalRows(pageIdx={})={}", type, pageIdx, generalRows.size());
+            logger.debug("[{}] generalRows(pageIdx={})={}", type, pageIdx, generalRows.size());
 
             if (generalRows.isEmpty()) {
-                logger.info("[{}] No more rows at pageIdx {}; breaking.", type, pageIdx);
+                logger.debug("[{}] No more rows at pageIdx {}; breaking.", type, pageIdx);
                 break;
             }
 
@@ -107,13 +107,13 @@ public class NoticeScrapeService {
             }
 
             if (!fullLoad && pagesFetched >= 3) { // 운영 중엔 3 페이지만
-                logger.info("[{}] Not fullLoad; only first pages fetched ({} pages). Breaking.", type, pagesFetched);
+                logger.debug("[{}] Not fullLoad; only first pages fetched ({} pages). Breaking.", type, pagesFetched);
                 break;
             }
 
             // 마지막 페이지 휴리스틱(가져온 행 수가 step 미만이면 종료)
             if (fullLoad && generalRows.size() < step) {
-                logger.info("[{}] Last page detected (rows < step). Breaking.", type);
+                logger.debug("[{}] Last page detected (rows < step). Breaking.", type);
                 break;
             }
         }
@@ -127,7 +127,7 @@ public class NoticeScrapeService {
 
         // 5) DB 저장
         List<Notice> newOrUpdated = persistence.persistNotices(scraped);
-        logger.info("[{}] New/Updated count: {}", type, newOrUpdated.size());
+        logger.debug("[{}] New/Updated count: {}", type, newOrUpdated.size());
 
         // 6) 운영 중 알림(비활성화 상태 유지)
         if (!fullLoad && !newOrUpdated.isEmpty()) {
@@ -157,7 +157,7 @@ public class NoticeScrapeService {
                 .ignoreHttpErrors(true);
 
         Connection.Response resp = conn.execute();
-        logger.info("[fetch:{}] GET {} -> status={}, contentType={}, finalUrl={}",
+        logger.debug("[fetch:{}] GET {} -> status={}, contentType={}, finalUrl={}",
                 tag, url, resp.statusCode(), resp.contentType(), resp.url());
         return resp.parse();
     }
@@ -169,10 +169,10 @@ public class NoticeScrapeService {
             Path p = Path.of("/tmp/scrape-" + type.replace('.', '-') + "-p" + pageIdx + ".html");
             if (!Files.exists(p)) {
                 Files.writeString(p, doc.outerHtml());
-                logger.info("[{}] Saved sample: {}", type, p);
+                logger.debug("[{}] Saved sample: {}", type, p);
             }
         } catch (Exception e) {
-            logger.warn("[{}] Failed to save sample html: {}", type, e.toString());
+            logger.error("[{}] Failed to save sample html: {}", type, e.toString());
         }
     }
 }

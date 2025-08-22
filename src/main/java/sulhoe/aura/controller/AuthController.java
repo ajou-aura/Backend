@@ -56,22 +56,21 @@ public class AuthController {
                 .secure(true)
                 .sameSite(isProd ? "Lax" : "None")
                 .path("/")
-                // .domain(".ajouhub.kr") // 프론트/백이 서브도메인 분리면 환경에 맞게 설정
-                // maxAge는 생략(세션 쿠키)하거나 Access 만료에 맞춰 설정해도 됨
                 .build();
     }
 
-    // 구글 로그인 시작
+    // 구글 로그인 시작: ?mode=app | web
     @GetMapping("/google")
-    public void redirectToGoogle(HttpServletResponse res) throws IOException {
+    public void redirectToGoogle(@RequestParam(defaultValue = "web") String mode,
+                                 HttpServletResponse res) throws IOException {
         String url = UriComponentsBuilder.fromUriString("https://accounts.google.com/o/oauth2/v2/auth")
                 .queryParam("client_id", clientId)
                 .queryParam("redirect_uri", redirectUri)
                 .queryParam("response_type", "code")
                 .queryParam("scope", "openid email profile")
+                .queryParam("state", mode) // 앱/웹 분기 신호
                 .build().toUriString();
         log.debug("[CTRL] Redirecting to Google OAuth URL: {}", url);
-
         res.sendRedirect(url);
     }
 
@@ -79,27 +78,41 @@ public class AuthController {
     // 쿠키 두 개(REFRESH + WEB_SESSION)만 심고 프론트로 이동
     @GetMapping("/callback")
     @ResponseStatus(HttpStatus.SEE_OTHER)
-    public void callback(@RequestParam String code, HttpServletResponse res) throws IOException {
+    public void callback(@RequestParam String code,
+                         @RequestParam(required = false, defaultValue = "web") String state,
+                         HttpServletResponse res) throws IOException {
         // 구글에서 받은 코드를 통해 토큰 발급
-        log.debug("[CTRL] OAuth callback received, code={}", code);
+        log.info("[CTRL] OAuth callback received, code={}, state={}", code, state);
 
         LoginResponseDto dto = authService.loginWithGoogle(code);
 
-        // 1) Refresh는 그대로 HttpOnly 쿠키
+        if ("app".equalsIgnoreCase(state)) {
+            // 앱 모드: 딥링크로 토큰 전달
+            String target = UriComponentsBuilder.fromUriString("aura://oauth-callback")
+                    .queryParam("accessToken", dto.accessToken())
+                    .queryParam("refreshToken", dto.refreshToken())
+                    .queryParam("signUp", dto.signUp())
+                    .build().toUriString();
+
+            res.setStatus(HttpStatus.SEE_OTHER.value());
+            res.setHeader(HttpHeaders.LOCATION, target);
+            return;
+        }
+
+        // 웹 모드: 쿠키 세팅 후 프론트로 리다이렉트
+        // refresh는 Http
         res.addHeader(HttpHeaders.SET_COOKIE, refreshCookie(dto.refreshToken()).toString());
 
         // 2) Access(JWT)를 WEB_SESSION 쿠키로 심음 (프론트는 쿠키 기반으로만 동작)
         res.addHeader(HttpHeaders.SET_COOKIE, webSessionCookie(dto.accessToken()).toString());
 
-        String target = UriComponentsBuilder
-                .fromUriString(frontendUrl)
-                .queryParam("signUp", dto.signUp()) // 필요시 비민감 값만
+        String target = UriComponentsBuilder.fromUriString(frontendUrl)
+                .queryParam("signUp", dto.signUp())
                 .build().toUriString();
 
         res.setStatus(HttpStatus.SEE_OTHER.value());
         res.setHeader(HttpHeaders.LOCATION, target);
-
-        log.debug("[CTRL] Redirecting back to frontend with tokens: {}", target);
+        log.info("[CTRL] Redirecting back to frontend with tokens: {}", target);
     }
 
     // 리프레시 토큰으로 액세스 토큰만 재발급
@@ -117,27 +130,27 @@ public class AuthController {
             // 리프레시 토큰 회전
             response.setHeader(HttpHeaders.SET_COOKIE, refreshCookie(dto.refreshToken()).toString());
             if (web) {
-                // ★ 웹 모드: JSON 대신 WEB_SESSION 쿠키 갱신만 하고 204
+                // 웹 모드: JSON 대신 WEB_SESSION 쿠키 갱신만 하고 204
                 response.addHeader(HttpHeaders.SET_COOKIE, webSessionCookie(dto.accessToken()).toString());
                 return ResponseEntity.noContent().build();
             } else {
-                // 앱 모드: JSON으로 accessToken 반환(기존 호환)
+                // 앱 모드: JSON으로 accessToken 반환
                 return ResponseEntity.ok(ApiResponse.success(Map.of("accessToken", dto.accessToken())));
             }
-
         } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(ApiResponse.error(401, e.getMessage(), Map.of("code", "INVALID_REFRESH_TOKEN")));
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).
+                    body(ApiResponse.error(401, e.getMessage(), Map.of("code", "INVALID_REFRESH_TOKEN")));
         }
     }
 
-    // 앱 -> 웹 SSO 브리지 (앱이 가진 Bearer Access로 웹뷰 쿠키 주입)
+    // 앱 -> 웹 SSO 브리지 (Bearer Access를 WEB_SESSION 쿠키로 주입)
     @GetMapping("/sso/webview")
     public ResponseEntity<Void> ssoWebView(
             @RequestHeader(name = "Authorization", required = false) String authz) {
 
         String token = (authz != null && authz.startsWith("Bearer ")) ? authz.substring(7) : null;
         if (token == null || !jwt.validateToken(token)) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+            return ResponseEntity.status(401).build();
         }
 
         // 유효한 Access JWT를 그대로 WEB_SESSION으로 내려 프론트가 쿠키 기반 사용

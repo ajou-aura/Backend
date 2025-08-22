@@ -25,20 +25,14 @@ public class ScrapeScheduleService {
         noticeConfig.getUrls().forEach((type, url) -> {
             try {
                 noticeScrapeService.scrapeNotices(url, type);
-                log.info("Scraping success for type: {}", type);
+                log.debug("Scraping success for type: {}", type);
             } catch (Exception e) {
                 log.error("Scraping failed for type: {}", type, e);
                 failedTypes.add(type);
             }
         });
         if (!failedTypes.isEmpty()) {
-            log.warn(">>> 다음 카테고리에서 스크래핑에 실패했습니다: {}", failedTypes);
+            log.info(">>> 스크래핑 실패 카테고리: {}", failedTypes);
         }
     }
-
-    // (선택) 매일 새벽 3시 수행
-    // @Scheduled(cron = "0 0 3 * * ?")
-    // public void scheduledMaintenanceTask() {
-    //     // 예: 오래된 공지 삭제, 로그 정리 등
-    // }
 }

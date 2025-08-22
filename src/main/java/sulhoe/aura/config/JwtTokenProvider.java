@@ -30,9 +30,7 @@ public class JwtTokenProvider {
         this.signingKey = Keys.hmacShaKeyFor(keyBytes);
     }
 
-    /**
-     * Access Token: email(subject), name, department 클레임 포함
-     */
+    // Access Token: email(subject), name, department 클레임 포함
     public String createAccessToken(String email, String name) {
         long now = System.currentTimeMillis();
         String token = Jwts.builder()
@@ -48,9 +46,7 @@ public class JwtTokenProvider {
         return token;
     }
 
-    /**
-     * Refresh Token: email(subject) 만 담기
-     */
+    // Refresh Token: email(subject) 만 담기
     public String createRefreshToken(String email) {
         long now = System.currentTimeMillis();
         String token =  Jwts.builder()
@@ -64,9 +60,7 @@ public class JwtTokenProvider {
         return token;
     }
 
-    /**
-     * 토큰 유효성 검사
-     */
+    // 토큰 유효성 검사
     public boolean validateToken(String token) {
         try {
             Jwts.parserBuilder()
@@ -74,7 +68,7 @@ public class JwtTokenProvider {
                     .build()
                     .parseClaimsJws(token);
 
-            log.debug("[JWT-VALID] token valid, sub={}", getEmail(token));
+            log.info("[JWT-VALID] token valid, sub={}", getEmail(token));
             return true;
         } catch (JwtException | IllegalArgumentException e) {
             log.warn("[JWT-INVALID] {}", e.getMessage());
@@ -82,9 +76,7 @@ public class JwtTokenProvider {
         }
     }
 
-    /**
-     * Claims 꺼내기
-     */
+    // Claims 꺼내기
     private Claims getClaims(String token) {
         return Jwts.parserBuilder()
                 .setSigningKey(signingKey)

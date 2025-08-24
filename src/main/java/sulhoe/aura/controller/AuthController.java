@@ -1,5 +1,6 @@
 package sulhoe.aura.controller;
 
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -37,14 +38,11 @@ public class AuthController {
     @Value("${app.frontend-url}")
     private String frontendUrl;
 
-    @Value("${app.is-prod:false}") // 배포 환경
-    private boolean isProd;
-
     private ResponseCookie refreshCookie(String refresh) {
         return ResponseCookie.from("refreshToken", refresh)
                 .httpOnly(true)
                 .secure(true)
-                .sameSite(isProd ? "Lax" : "None")
+                .sameSite("None")
                 .path("/")
                 .maxAge(JwtTokenProvider.REFRESH_EXPIRY_SECONDS)
                 .build();
@@ -54,7 +52,7 @@ public class AuthController {
         return ResponseCookie.from("WEB_SESSION", accessJwt)
                 .httpOnly(true)
                 .secure(true)
-                .sameSite(isProd ? "Lax" : "None")
+                .sameSite("None")
                 .path("/")
                 .build();
     }
@@ -119,7 +117,6 @@ public class AuthController {
     @PostMapping("/refresh")
     public ResponseEntity<ApiResponse<Map<String, String>>> refresh(
             @CookieValue(value = "refreshToken", required = false) String refreshToken,
-            @RequestParam(value = "web", required = false, defaultValue = "false") boolean web,
             HttpServletResponse response) {
         if (refreshToken == null) {
             return ResponseEntity.badRequest()
@@ -127,16 +124,12 @@ public class AuthController {
         }
         try {
             var dto = authService.refreshAccessToken(refreshToken);
-            // 리프레시 토큰 회전
-            response.setHeader(HttpHeaders.SET_COOKIE, refreshCookie(dto.refreshToken()).toString());
-            if (web) {
-                // 웹 모드: JSON 대신 WEB_SESSION 쿠키 갱신만 하고 204
-                response.addHeader(HttpHeaders.SET_COOKIE, webSessionCookie(dto.accessToken()).toString());
-                return ResponseEntity.noContent().build();
-            } else {
-                // 앱 모드: JSON으로 accessToken 반환
-                return ResponseEntity.ok(ApiResponse.success(Map.of("accessToken", dto.accessToken())));
-            }
+            // 회전된 RT + 새 AT를 항상 쿠키로 갱신
+            response.addHeader(HttpHeaders.SET_COOKIE, refreshCookie(dto.refreshToken()).toString());
+            response.addHeader(HttpHeaders.SET_COOKIE, webSessionCookie(dto.accessToken()).toString());
+
+            // (웹은 바디가 굳이 필요 없음) 호환용으로 OK 반환
+            return ResponseEntity.ok(ApiResponse.success(Map.of("accessToken", dto.accessToken())));
         } catch (RuntimeException e) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).
                     body(ApiResponse.error(401, e.getMessage(), Map.of("code", "INVALID_REFRESH_TOKEN")));

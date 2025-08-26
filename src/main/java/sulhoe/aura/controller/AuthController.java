@@ -18,6 +18,7 @@ import sulhoe.aura.service.login.AuthService;
 
 import java.io.IOException;
 import java.util.Map;
+import org.springframework.security.web.csrf.CsrfToken;
 
 @Slf4j
 @RestController
@@ -37,6 +38,16 @@ public class AuthController {
     // 프론트엔드 리다이렉트 주소 (: http://localhost:3000)
     @Value("${app.frontend-url}")
     private String frontendUrl;
+
+
+    @GetMapping("/csrf")
+    public ResponseEntity<Void> csrf(CsrfToken token) {
+        // 쿠키(XSRF-TOKEN)는 repo가 내려주고,
+        // 헤더로 값도 같이 내려 프런트가 읽어 저장하게 함
+        return ResponseEntity.noContent()
+                .header("X-CSRF-TOKEN", token.getToken())
+                .build();
+    }
 
     private ResponseCookie refreshCookie(String refresh) {
         return ResponseCookie.from("refreshToken", refresh)
@@ -113,28 +124,32 @@ public class AuthController {
         log.info("[CTRL] Redirecting back to frontend with tokens: {}", target);
     }
 
-    // 리프레시 토큰으로 액세스 토큰만 재발급
+    // 리프레시
     @PostMapping("/refresh")
     public ResponseEntity<ApiResponse<Map<String, String>>> refresh(
-            @CookieValue(value = "refreshToken", required = false) String refreshToken,
-            HttpServletResponse response) {
-        if (refreshToken == null) {
+            @CookieValue(value = "refreshToken", required = false) String cookieRt,
+            @RequestBody(required = false) Map<String, String> body,
+            HttpServletResponse response
+    ) {
+        String bodyRt = (body != null ? body.get("refreshToken") : null);
+        String rt = (cookieRt != null ? cookieRt : bodyRt);
+        if (rt == null) {
             return ResponseEntity.badRequest()
                     .body(ApiResponse.error(400, "리프레시 토큰이 누락되었습니다.", Map.of("code", "MISSING_REFRESH_TOKEN")));
         }
-        try {
-            var dto = authService.refreshAccessToken(refreshToken);
-            // 회전된 RT + 새 AT를 항상 쿠키로 갱신
-            response.addHeader(HttpHeaders.SET_COOKIE, refreshCookie(dto.refreshToken()).toString());
-            response.addHeader(HttpHeaders.SET_COOKIE, webSessionCookie(dto.accessToken()).toString());
 
-            // (웹은 바디가 굳이 필요 없음) 호환용으로 OK 반환
-            return ResponseEntity.ok(ApiResponse.success(Map.of("accessToken", dto.accessToken())));
-        } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).
-                    body(ApiResponse.error(401, e.getMessage(), Map.of("code", "INVALID_REFRESH_TOKEN")));
-        }
+        var dto = authService.refreshAccessToken(rt); // (회전된 RT 포함)
+
+        // 웹 호환: 쿠키도 항상 갱신해줌(앱은 무시)
+        response.addHeader(HttpHeaders.SET_COOKIE, refreshCookie(dto.refreshToken()).toString());
+        response.addHeader(HttpHeaders.SET_COOKIE, webSessionCookie(dto.accessToken()).toString());
+
+        // 앱 호환: JSON도 내려줌(웹은 안 써도 됨)
+        return ResponseEntity.ok(ApiResponse.success(
+                Map.of("accessToken", dto.accessToken(), "refreshToken", dto.refreshToken())
+        ));
     }
+
 
     // 앱 -> 웹 SSO 브리지 (Bearer Access를 WEB_SESSION 쿠키로 주입)
     @GetMapping("/sso/webview")

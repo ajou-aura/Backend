@@ -30,7 +30,7 @@ public class WebConfig implements WebMvcConfigurer {
                 .allowedOrigins(corsOrigins.split(","))
                 .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
                 .allowedHeaders("*")
-                .exposedHeaders("WWW-Authenticate")
+                .exposedHeaders("WWW-Authenticate", "X-CSRF-TOKEN")
                 .allowCredentials(true)
                 .maxAge(3600);
     }

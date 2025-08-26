@@ -1,5 +1,6 @@
 package sulhoe.aura.config;
 
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
@@ -17,7 +18,10 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.savedrequest.NullRequestCache;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.servlet.util.matcher.MvcRequestMatcher;
+import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.filter.ForwardedHeaderFilter;
+import org.springframework.web.servlet.handler.HandlerMappingIntrospector;
 
 @Configuration
 @RequiredArgsConstructor
@@ -30,17 +34,30 @@ public class SecurityConfig {
         return PasswordEncoderFactories.createDelegatingPasswordEncoder();
     }
 
+    @Bean HandlerMappingIntrospector introspector() { return new HandlerMappingIntrospector(); }
+
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+        var repo = CookieCsrfTokenRepository.withHttpOnlyFalse();
+        // ⬇교차 사이트에서 쿠키가 전송되도록
+        repo.setCookieCustomizer(c -> c
+                .sameSite("None")
+                .secure(true)
+                .path("/"));
+
         return http
                 // CORS는 WebConfig.addCorsMappings에서 설정 → 여기선 활성화만
                 .cors(Customizer.withDefaults())
 
                 // CSRF: 쿠키/쿠키 기반이면 활성 권장. 다만 인증/리프레시 등은 예외 처리
                 .csrf(csrf -> csrf
-                        .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+                        .csrfTokenRepository(repo)
                         .ignoringRequestMatchers(
-                                "/api/auth/**" // 로그인/콜백/리프레시/SSO 브리지 등
+                                new MvcRequestMatcher(introspector(), "/api/auth/**"),// 로그인/콜백/리프레시/SSO 브리지 등
+                                (HttpServletRequest req) -> { // Authorization: Bearer면 CSRF 제외
+                                    String auth = req.getHeader("Authorization");
+                                    return auth != null && auth.startsWith("Bearer ");
+                                }
                         )
                 )
 

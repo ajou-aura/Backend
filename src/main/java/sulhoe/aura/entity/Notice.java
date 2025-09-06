@@ -44,6 +44,15 @@ public class Notice {
     @ManyToMany(mappedBy = "savedNotices")
     private Set<User> savedByUsers = new HashSet<>();
 
+    /** 전역 키워드 태깅 캐시 — JPA가 notice_keywords를 자동 생성 */
+    @ManyToMany
+    @JoinTable(
+            name = "notice_keywords",
+            joinColumns = @JoinColumn(name = "notice_id"),
+            inverseJoinColumns = @JoinColumn(name = "keyword_id")
+    )
+    private Set<Keyword> keywords = new HashSet<>(); // 전역 키워드만 넣어 캐시로 사용
+
     public Notice(String number, String category, String title, String department, String date, String link) {
         this.number = number;
         this.category = category;

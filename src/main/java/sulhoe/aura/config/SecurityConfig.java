@@ -39,7 +39,6 @@ public class SecurityConfig {
     @Bean
     SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         var repo = CookieCsrfTokenRepository.withHttpOnlyFalse();
-        // ⬇교차 사이트에서 쿠키가 전송되도록
         repo.setCookieCustomizer(c -> c
                 .sameSite("None")
                 .secure(true)
@@ -95,7 +94,9 @@ public class SecurityConfig {
                         .accessDeniedHandler((req, res, e) -> {
                             res.setStatus(HttpServletResponse.SC_FORBIDDEN);
                             res.setContentType("application/json");
-                            res.getWriter().write("{\"code\":\"FORBIDDEN\",\"message\":\"Forbidden\"}");
+                            String code = (e instanceof org.springframework.security.web.csrf.CsrfException)
+                                    ? "CSRF_FAILED" : "FORBIDDEN";
+                            res.getWriter().write("{\"code\":\""+code+"\",\"message\":\"Forbidden\"}");
                         })
                 )
 

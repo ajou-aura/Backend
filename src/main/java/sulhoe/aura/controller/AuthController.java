@@ -132,22 +132,39 @@ public class AuthController {
             HttpServletResponse response
     ) {
         String bodyRt = (body != null ? body.get("refreshToken") : null);
-        String rt = (cookieRt != null ? cookieRt : bodyRt);
+        String rt = (bodyRt != null ? bodyRt : cookieRt);
+        log.info("[REFRESH] called: source={}, hasRt={}",
+                (bodyRt!=null ? "body" : (cookieRt!=null ? "cookie" : "none")),
+                (rt!=null));
+
         if (rt == null) {
             return ResponseEntity.badRequest()
                     .body(ApiResponse.error(400, "리프레시 토큰이 누락되었습니다.", Map.of("code", "MISSING_REFRESH_TOKEN")));
         }
 
-        var dto = authService.refreshAccessToken(rt); // (회전된 RT 포함)
+        try{
+            var dto = authService.refreshAccessToken(rt); // (회전된 RT 포함)
 
-        // 웹 호환: 쿠키도 항상 갱신해줌(앱은 무시)
-        response.addHeader(HttpHeaders.SET_COOKIE, refreshCookie(dto.refreshToken()).toString());
-        response.addHeader(HttpHeaders.SET_COOKIE, webSessionCookie(dto.accessToken()).toString());
+            // 웹 호환: 쿠키도 항상 갱신해줌(앱은 무시)
+            response.addHeader(HttpHeaders.SET_COOKIE, refreshCookie(dto.refreshToken()).toString());
+            response.addHeader(HttpHeaders.SET_COOKIE, webSessionCookie(dto.accessToken()).toString());
 
-        // 앱 호환: JSON도 내려줌(웹은 안 써도 됨)
-        return ResponseEntity.ok(ApiResponse.success(
-                Map.of("accessToken", dto.accessToken(), "refreshToken", dto.refreshToken())
-        ));
+            // 앱 호환: JSON도 내려줌(웹은 안 써도 됨)
+            return ResponseEntity.ok(ApiResponse.success(
+                    Map.of("accessToken", dto.accessToken(), "refreshToken", dto.refreshToken())
+            ));
+        } catch(RuntimeException e) {
+            // 만료/유효하지 않음 → 401 + 쿠키 제거(혹시 브라우저에 오래된 게 남아있다면 정리)
+            ResponseCookie clearRt = ResponseCookie.from("refreshToken","")
+                    .httpOnly(true).secure(true).sameSite("None").path("/").maxAge(0).build();
+            ResponseCookie clearWs = ResponseCookie.from("WEB_SESSION","")
+                    .httpOnly(true).secure(true).sameSite("None").path("/").maxAge(0).build();
+            response.addHeader(HttpHeaders.SET_COOKIE, clearRt.toString());
+            response.addHeader(HttpHeaders.SET_COOKIE, clearWs.toString());
+
+            return ResponseEntity.status(401)
+                    .body(ApiResponse.error(401, "Invalid refresh token", Map.of("code","INVALID_REFRESH_TOKEN")));
+        }
     }
 
 

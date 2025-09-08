@@ -4,6 +4,8 @@ import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import sulhoe.aura.entity.Keyword;
@@ -35,23 +37,52 @@ public class KeywordService {
     @Value("${app.keywords.retag-on-start:false}")
     private boolean retagOnStart;
 
-    @PostConstruct
+    @EventListener(ApplicationReadyEvent.class)
     @Transactional
-    public void initSeed() {
+    public void initOnReady() {
+        seedGlobalsIfNeeded();   // 아래로 분리
+        if (retagOnStart) {
+            retagAll();          // 아래로 분리
+        }
+    }
+
+    @Transactional
+    public void seedGlobalsIfNeeded() {
         if (seed != null && !seed.isBlank()) {
             Arrays.stream(seed.split(","))
                     .map(String::trim).filter(s -> !s.isBlank()).distinct()
                     .forEach(phrase -> {
                         if (!keywordRepo.existsByScopeAndPhraseIgnoreCase(Scope.GLOBAL, phrase)) {
-                            keywordRepo.save(Keyword.builder().phrase(phrase).scope(Scope.GLOBAL).build());
+                            keywordRepo.save(Keyword.builder()
+                                    .phrase(phrase)
+                                    .scope(Scope.GLOBAL)
+                                    .build());
                         }
                     });
             log.info("[KeywordSeed] Seeded GLOBAL: {}", seed);
         }
-        if (retagOnStart) {
-            log.info("[KeywordSeed] Retagging all notices on start");
-            noticeRepo.findAll().forEach(this::tagNoticeWithGlobalKeywords);
-        }
+    }
+
+    @Transactional
+    public void retagAll() {
+        // 한 트랜잭션 안에서 반복 처리
+        final List<Keyword> globals = keywordRepo.findAllByScope(Scope.GLOBAL);
+        noticeRepo.findAll().forEach(n -> tagNoticeWithGlobalKeywords(n.getId(), globals));
+    }
+
+    /** 엔티티를 반드시 영속 상태로 다시 꺼내서 조작 */
+    @Transactional
+    public void tagNoticeWithGlobalKeywords(UUID noticeId, List<Keyword> globals) {
+        Notice managed = noticeRepo.findById(noticeId).orElseThrow();
+        final String title = Optional.ofNullable(managed.getTitle()).orElse("");
+
+        Set<Keyword> matched = globals.stream()
+                .filter(k -> containsIgnoreCase(title, k.getPhrase()))
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+
+        managed.getKeywords().clear();
+        managed.getKeywords().addAll(matched);
+        // 같은 영속성 컨텍스트 안이므로 save() 불필요
     }
 
     /* ===== 유틸 ===== */

@@ -1,5 +1,6 @@
 package sulhoe.aura.controller;
 
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -17,6 +18,7 @@ import sulhoe.aura.service.login.AuthService;
 
 import java.io.IOException;
 import java.util.Map;
+import org.springframework.security.web.csrf.CsrfToken;
 
 @Slf4j
 @RestController
@@ -37,14 +39,21 @@ public class AuthController {
     @Value("${app.frontend-url}")
     private String frontendUrl;
 
-    @Value("${app.is-prod:false}") // 배포 환경
-    private boolean isProd;
+
+    @GetMapping("/csrf")
+    public ResponseEntity<Void> csrf(CsrfToken token) {
+        // 쿠키(XSRF-TOKEN)는 repo가 내려주고,
+        // 헤더로 값도 같이 내려 프런트가 읽어 저장하게 함
+        return ResponseEntity.noContent()
+                .header("X-CSRF-TOKEN", token.getToken())
+                .build();
+    }
 
     private ResponseCookie refreshCookie(String refresh) {
         return ResponseCookie.from("refreshToken", refresh)
                 .httpOnly(true)
                 .secure(true)
-                .sameSite(isProd ? "Lax" : "None")
+                .sameSite("None")
                 .path("/")
                 .maxAge(JwtTokenProvider.REFRESH_EXPIRY_SECONDS)
                 .build();
@@ -54,8 +63,20 @@ public class AuthController {
         return ResponseCookie.from("WEB_SESSION", accessJwt)
                 .httpOnly(true)
                 .secure(true)
-                .sameSite(isProd ? "Lax" : "None")
+                .sameSite("None")
                 .path("/")
+                .maxAge(JwtTokenProvider.WEB_ACCESS_EXP)
+                .build();
+    }
+
+    // 추가: 삭제용 쿠키 빌더
+    private ResponseCookie clearCookie(String name) {
+        return ResponseCookie.from(name, "")
+                .httpOnly(true)
+                .secure(true)
+                .sameSite("None")
+                .path("/")
+                .maxAge(0)
                 .build();
     }
 
@@ -115,33 +136,49 @@ public class AuthController {
         log.info("[CTRL] Redirecting back to frontend with tokens: {}", target);
     }
 
-    // 리프레시 토큰으로 액세스 토큰만 재발급
+    // 리프레시
     @PostMapping("/refresh")
     public ResponseEntity<ApiResponse<Map<String, String>>> refresh(
-            @CookieValue(value = "refreshToken", required = false) String refreshToken,
-            @RequestParam(value = "web", required = false, defaultValue = "false") boolean web,
-            HttpServletResponse response) {
-        if (refreshToken == null) {
+            @CookieValue(value = "refreshToken", required = false) String cookieRt,
+            @RequestBody(required = false) Map<String, String> body,
+            HttpServletResponse response
+    ) {
+        String bodyRt = (body != null ? body.get("refreshToken") : null);
+        String rt = (bodyRt != null ? bodyRt : cookieRt);
+        log.info("[REFRESH] called: source={}, hasRt={}",
+                (bodyRt!=null ? "body" : (cookieRt!=null ? "cookie" : "none")),
+                (rt!=null));
+
+        if (rt == null) {
             return ResponseEntity.badRequest()
                     .body(ApiResponse.error(400, "리프레시 토큰이 누락되었습니다.", Map.of("code", "MISSING_REFRESH_TOKEN")));
         }
-        try {
-            var dto = authService.refreshAccessToken(refreshToken);
-            // 리프레시 토큰 회전
-            response.setHeader(HttpHeaders.SET_COOKIE, refreshCookie(dto.refreshToken()).toString());
-            if (web) {
-                // 웹 모드: JSON 대신 WEB_SESSION 쿠키 갱신만 하고 204
-                response.addHeader(HttpHeaders.SET_COOKIE, webSessionCookie(dto.accessToken()).toString());
-                return ResponseEntity.noContent().build();
-            } else {
-                // 앱 모드: JSON으로 accessToken 반환
-                return ResponseEntity.ok(ApiResponse.success(Map.of("accessToken", dto.accessToken())));
-            }
+
+        try{
+            var dto = authService.refreshAccessToken(rt); // (회전된 RT 포함)
+
+            // 웹 호환: 쿠키도 항상 갱신해줌(앱은 무시)
+            response.addHeader(HttpHeaders.SET_COOKIE, refreshCookie(dto.refreshToken()).toString());
+            response.addHeader(HttpHeaders.SET_COOKIE, webSessionCookie(dto.accessToken()).toString());
+
+            // 앱 호환: JSON도 내려줌(웹은 안 써도 됨)
+            return ResponseEntity.ok(ApiResponse.success(
+                    Map.of("accessToken", dto.accessToken(), "refreshToken", dto.refreshToken())
+            ));
         } catch (RuntimeException e) {
-            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).
-                    body(ApiResponse.error(401, e.getMessage(), Map.of("code", "INVALID_REFRESH_TOKEN")));
+            log.warn("[REFRESH] invalid/expired RT: {}", e.getMessage());
+
+            response.addHeader(HttpHeaders.SET_COOKIE, clearCookie("refreshToken").toString());
+            response.addHeader(HttpHeaders.SET_COOKIE, clearCookie("WEB_SESSION").toString());
+
+            // 표준 오류 헤더 추가 -> 프런트가 401 원인을 쉽게 구분
+            return ResponseEntity.status(401)
+                    .header(HttpHeaders.WWW_AUTHENTICATE,
+                            "Bearer error=\"invalid_token\", error_description=\"refresh_expired_or_invalid\"")
+                    .body(ApiResponse.error(401, "Invalid refresh token", Map.of("code","INVALID_REFRESH_TOKEN")));
         }
     }
+
 
     // 앱 -> 웹 SSO 브리지 (Bearer Access를 WEB_SESSION 쿠키로 주입)
     @GetMapping("/sso/webview")

@@ -65,6 +65,18 @@ public class AuthController {
                 .secure(true)
                 .sameSite("None")
                 .path("/")
+                .maxAge(JwtTokenProvider.WEB_ACCESS_EXP)
+                .build();
+    }
+
+    // 추가: 삭제용 쿠키 빌더
+    private ResponseCookie clearCookie(String name) {
+        return ResponseCookie.from(name, "")
+                .httpOnly(true)
+                .secure(true)
+                .sameSite("None")
+                .path("/")
+                .maxAge(0)
                 .build();
     }
 
@@ -153,16 +165,16 @@ public class AuthController {
             return ResponseEntity.ok(ApiResponse.success(
                     Map.of("accessToken", dto.accessToken(), "refreshToken", dto.refreshToken())
             ));
-        } catch(RuntimeException e) {
-            // 만료/유효하지 않음 → 401 + 쿠키 제거(혹시 브라우저에 오래된 게 남아있다면 정리)
-            ResponseCookie clearRt = ResponseCookie.from("refreshToken","")
-                    .httpOnly(true).secure(true).sameSite("None").path("/").maxAge(0).build();
-            ResponseCookie clearWs = ResponseCookie.from("WEB_SESSION","")
-                    .httpOnly(true).secure(true).sameSite("None").path("/").maxAge(0).build();
-            response.addHeader(HttpHeaders.SET_COOKIE, clearRt.toString());
-            response.addHeader(HttpHeaders.SET_COOKIE, clearWs.toString());
+        } catch (RuntimeException e) {
+            log.warn("[REFRESH] invalid/expired RT: {}", e.getMessage());
 
+            response.addHeader(HttpHeaders.SET_COOKIE, clearCookie("refreshToken").toString());
+            response.addHeader(HttpHeaders.SET_COOKIE, clearCookie("WEB_SESSION").toString());
+
+            // 표준 오류 헤더 추가 -> 프런트가 401 원인을 쉽게 구분
             return ResponseEntity.status(401)
+                    .header(HttpHeaders.WWW_AUTHENTICATE,
+                            "Bearer error=\"invalid_token\", error_description=\"refresh_expired_or_invalid\"")
                     .body(ApiResponse.error(401, "Invalid refresh token", Map.of("code","INVALID_REFRESH_TOKEN")));
         }
     }

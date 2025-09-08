@@ -54,20 +54,18 @@ public class AuthService {
             user = optUser.get();
             // 이름이 바뀌었을 수도 있으니 업데이트
             user.setName(info.name());
+            // RT가 없거나(이전 버전 사용자) 만료 임박이면 교체
+            String currentRt = user.getRefreshToken();
+            if (currentRt == null || jwtTokenProvider.isExpiringSoon(currentRt, /*sec*/ 3600)) { // 1h 이내 만료면 교체
+                String refreshed = jwtTokenProvider.createRefreshToken(info.email());
+                user.setRefreshToken(refreshed);
+            }
             user = userRepository.save(user);
             log.debug("[AUTH] Existing user updated");
         }
 
-
         String access  = jwtTokenProvider.createAccessToken(user.getEmail(), user.getName());
         String refresh = user.getRefreshToken();
-
-        log.debug("[AUTH] Tokens issued: access.length={} refresh.length={}",
-                access.length(), refresh.length());
-
-        // 리프레시 토큰 저장 및 회전 초기화
-        user.setRefreshToken(refresh);
-        userRepository.save(user);
 
         return new LoginResponseDto(access, refresh, isSignUp);
     }
@@ -91,8 +89,12 @@ public class AuthService {
 
         // 토큰 회전: 새로운 리프레시 토큰 발급
         String newRefresh = jwtTokenProvider.createRefreshToken(email);
-        user.setRefreshToken(newRefresh);
-        userRepository.save(user);
+
+        // === 원자적 회전: old==현재값 일 때만 new로 교체 ===
+        int updated = userRepository.rotateRefreshTokenAtomically(email, refreshToken, newRefresh);
+        if (updated != 1) { // 0이면 동시 회전/재사용 등으로 이미 값이 바뀐 상황
+            throw new RuntimeException("Refresh token race detected (already rotated)");
+        }
 
         String newAccess = jwtTokenProvider.createAccessToken(
                 user.getEmail(), user.getName());

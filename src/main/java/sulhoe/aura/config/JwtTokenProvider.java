@@ -20,14 +20,21 @@ public class JwtTokenProvider {
 
     private SecretKey signingKey;
     private static final long ACCESS_EXP  = 1000L * 60;        // 1분
+    public static final long WEB_ACCESS_EXP = 1000L * 60;
     private static final long REFRESH_EXP = 1000L * 60 * 60 * 24;   // 1일
     public static final long REFRESH_EXPIRY_SECONDS = REFRESH_EXP / 1000;  // 쿠키 maxAge용
+
+    private JwtParser jwtParser; // 시계 오차 허용을 위해 재사용
 
     @PostConstruct
     public void init() {
         // Base64 디코딩 후 HMAC-SHA 키 생성
         byte[] keyBytes = Base64.getDecoder().decode(secretKey);
         this.signingKey = Keys.hmacShaKeyFor(keyBytes);
+        this.jwtParser = Jwts.parserBuilder()
+                .setSigningKey(signingKey)
+                .setAllowedClockSkewSeconds(60) // 60초 오차 허용
+                .build();
     }
 
     // Access Token: email(subject), name, department 클레임 포함
@@ -75,6 +82,17 @@ public class JwtTokenProvider {
             return false;
         }
     }
+
+    public Date getExpiration(String token) {
+        return getClaims(token).getExpiration();
+    }
+
+    public boolean isExpiringSoon(String token, long withinSeconds) {
+        Date exp = getExpiration(token);
+        long now = System.currentTimeMillis();
+        return exp.getTime() - now <= withinSeconds * 1000L;
+    }
+
 
     // Claims 꺼내기
     private Claims getClaims(String token) {

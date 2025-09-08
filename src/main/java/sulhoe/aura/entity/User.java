@@ -44,6 +44,15 @@ public class User {
     )
     private Set<Notice> savedNotices = new HashSet<>();
 
+    /** 전역 키워드 구독(FCM/빠른검색 공용) — JPA가 user_keyword_subscriptions를 자동 생성 */
+    @ManyToMany
+    @JoinTable(
+            name = "user_keyword_subscriptions",
+            joinColumns = @JoinColumn(name = "user_id"),
+            inverseJoinColumns = @JoinColumn(name = "keyword_id")
+    )
+    private Set<Keyword> subscribedKeywords = new HashSet<>();
+
     public User(String name, String email, Set<String> departments) {
         this.name = name;
         this.email = email;

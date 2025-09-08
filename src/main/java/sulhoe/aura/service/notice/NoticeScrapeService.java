@@ -21,6 +21,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import sulhoe.aura.service.keyword.KeywordService;
 
 @Service
 @RequiredArgsConstructor
@@ -35,6 +36,7 @@ public class NoticeScrapeService {
     private final PushNotificationService push;
     private final NoticeRepository repo;
     private final NoticePersistenceService persistence;
+    private final KeywordService keywordService;
 
     public void scrapeNotices(String url, String type) throws IOException {
         boolean fullLoad = !repo.existsByType(type);
@@ -129,8 +131,14 @@ public class NoticeScrapeService {
         List<Notice> newOrUpdated = persistence.persistNotices(scraped);
         logger.debug("[{}] New/Updated count: {}", type, newOrUpdated.size());
 
-        // 6) 운영 중 알림(비활성화 상태 유지)
+        // 5-1) 새로 저장(또는 업데이트)된 공지들에 대해: 전역 키워드 태깅 + FCM 타겟 발송
+        for (Notice n : newOrUpdated) {
+            keywordService.onNoticeSaved(n, type);
+        }
+
+        // 6) 운영 중 알림(기존 토픽 알림은 필요 시 유지)
         if (!fullLoad && !newOrUpdated.isEmpty()) {
+            // 기존 전체 토픽 발송을 원하면 주석 해제:
             // push.sendPushNotification(NoticeDto.toDtoList(newOrUpdated), type);
         }
     }

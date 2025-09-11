@@ -22,14 +22,19 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import sulhoe.aura.service.keyword.KeywordService;
+import java.net.SocketTimeoutException;
+import java.util.concurrent.ThreadLocalRandom;
 
 @Service
 @RequiredArgsConstructor
 public class NoticeScrapeService {
     private static final Logger logger = LoggerFactory.getLogger(NoticeScrapeService.class);
 
-    private static final int DEFAULT_TIMEOUT_MS = 15_000;
+    private static final int DEFAULT_TIMEOUT_MS = 30_000;
     private static final int MAX_PAGES_CAP = 50;
+    private static final int RETRIES = 4;
+    private static final int BASE_BACKOFF_MS = 600;
+    private static final int MAX_BACKOFF_MS = 6_000;
 
     private final NoticeConfig noticeConfig;
     private final ApplicationContext ctx;
@@ -37,6 +42,14 @@ public class NoticeScrapeService {
     private final NoticeRepository repo;
     private final NoticePersistenceService persistence;
     private final KeywordService keywordService;
+
+    // 지터 백오프 유틸
+    private static int jitterBackoff(int attempt, int base, int max) {
+        long exp = (long) (base * Math.pow(2, attempt - 1));
+        long cap = Math.min(exp, max);
+        int jitter = ThreadLocalRandom.current().nextInt((int)(cap * 0.4) + 1);
+        return (int) (cap - jitter); // [0.6*cap, cap]
+    }
 
     public void scrapeNotices(String url, String type) throws IOException {
         boolean fullLoad = !repo.existsByType(type);
@@ -156,18 +169,44 @@ public class NoticeScrapeService {
 
     // Jsoup 공통 페치 & 로깅
     private Document fetchWithLog(String url, String tag) throws IOException {
-        Connection conn = Jsoup.connect(url)
-                .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                        + "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
-                .referrer("https://www.google.com/")
-                .timeout(DEFAULT_TIMEOUT_MS)
-                .followRedirects(true)
-                .ignoreHttpErrors(true);
+        IOException last = null;
+        for (int attempt = 1; attempt <= RETRIES; attempt++) {
+            try {
+                Connection conn = Jsoup.connect(url)
+                        .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                                + "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                        .referrer("https://www.google.com/")
+                        .timeout(DEFAULT_TIMEOUT_MS)          // connect + read 타임아웃
+                        .followRedirects(true)
+                        .ignoreHttpErrors(true)
+                        .maxBodySize(0)                       // 큰 페이지 대응 (필요시 2*1024*1024 등으로 제한)
+                        .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                        .header("Accept-Encoding", "gzip,deflate,br")
+                        .header("Accept-Language", "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7");
 
-        Connection.Response resp = conn.execute();
-        logger.debug("[fetch:{}] GET {} -> status={}, contentType={}, finalUrl={}",
-                tag, url, resp.statusCode(), resp.contentType(), resp.url());
-        return resp.parse();
+                Connection.Response resp = conn.execute();
+                resp.bodyAsBytes();
+                logger.debug("[fetch:{}] GET {} -> status={}, contentType={}, finalUrl={}, len={}",
+                        tag, url, resp.statusCode(), resp.contentType(), resp.url(),
+                        resp.bodyAsBytes().length);
+
+                return resp.parse();
+            } catch (SocketTimeoutException e) {
+                last = e;
+                logger.warn("[fetch:{}] timeout (attempt {}/{}): {}", tag, attempt, RETRIES, url);
+            } catch (IOException e) {
+                last = e;
+                logger.warn("[fetch:{}] IO error (attempt {}/{}): {} - {}", tag, attempt, RETRIES, url, e.toString());
+            }
+
+            // 재시도 전 지수 백오프 + 지터
+            int backoff = jitterBackoff(attempt, BASE_BACKOFF_MS, MAX_BACKOFF_MS);
+            try { Thread.sleep(backoff); } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                throw new IOException("Interrupted during backoff", ie);
+            }
+        }
+        throw last != null ? last : new IOException("Fetch failed: " + url);
     }
 
     private void dumpOnce(String type, int pageIdx, Document doc) {

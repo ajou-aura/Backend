@@ -5,8 +5,8 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
 @SpringBootApplication
-@EnableJpaRepositories(basePackages = "sulhoe.ajouhub.repository")
-@EntityScan(basePackages = "sulhoe.ajouhub.entity")
+@EnableJpaRepositories(basePackages = "sulhoe.aura.repository")
+@EntityScan(basePackages = "sulhoe.aura.entity")
 @EnableScheduling
 public class AuraApplication {
 

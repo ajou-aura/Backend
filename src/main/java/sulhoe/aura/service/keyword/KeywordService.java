@@ -37,6 +37,7 @@ public class KeywordService {
     @Value("${app.keywords.retag-on-start:false}")
     private boolean retagOnStart;
 
+    // 부팅 시
     @EventListener(ApplicationReadyEvent.class)
     @Transactional
     public void initOnReady() {
@@ -70,10 +71,16 @@ public class KeywordService {
         noticeRepo.findAll().forEach(n -> tagNoticeWithGlobalKeywords(n.getId(), globals));
     }
 
-    /** 엔티티를 반드시 영속 상태로 다시 꺼내서 조작 */
+    // 기존 ID 버전은 리태깅 배치용으로 유지
     @Transactional
     public void tagNoticeWithGlobalKeywords(UUID noticeId, List<Keyword> globals) {
         Notice managed = noticeRepo.findById(noticeId).orElseThrow();
+        tagNoticeWithGlobalKeywords(managed, globals);
+    }
+
+    /** 엔티티를 반드시 영속 상태로 다시 꺼내서 조작 */
+    @Transactional
+    public void tagNoticeWithGlobalKeywords(Notice managed, List<Keyword> globals) {
         final String title = Optional.ofNullable(managed.getTitle()).orElse("");
 
         Set<Keyword> matched = globals.stream()
@@ -145,54 +152,38 @@ public class KeywordService {
                 .getSubscribedKeywords().stream().map(Keyword::getId).toList();
     }
 
-    /* ===== 전역 키워드 태깅 & FCM 트리거 ===== */
-    /** Notice의 제목 기준 전역 키워드 태깅(캐시) */
-    @Transactional
-    public void tagNoticeWithGlobalKeywords(Notice n) {
-        final String title = n.getTitle() == null ? "" : n.getTitle();
-        final List<Keyword> globals = keywordRepo.findAllByScope(Scope.GLOBAL);
-        final Set<Keyword> matched = globals.stream()
-                .filter(k -> containsIgnoreCase(title, k.getPhrase()))
-                .collect(Collectors.toCollection(LinkedHashSet::new));
-        n.getKeywords().clear();
-        n.getKeywords().addAll(matched);
-        noticeRepo.save(n);
-    }
-
     /**
      * 저장 직후 호출: 태깅 + FCM 대상 계산 + 전송
-     * @param n    저장(신규/업데이트)된 Notice
+     * @param detachedNotice    저장(신규/업데이트)된 Notice
      * @param type 기존 크롤러가 쓰던 라우팅용 타입
      */
     @Transactional
-    public void onNoticeSaved(Notice n, String type) {
+    public void onNoticeSaved(Notice detachedNotice, String type) {
+        Notice n = noticeRepo.findByIdWithKeywords(detachedNotice.getId())
+                .orElseThrow(() -> new IllegalStateException("Notice not found: " + detachedNotice.getId()));
+
         // 1) 전역 키워드 태깅
-        tagNoticeWithGlobalKeywords(n);
+        final List<Keyword> globals = keywordRepo.findAllByScope(Scope.GLOBAL);
+        tagNoticeWithGlobalKeywords(n.getId(), globals);
 
         // 2) FCM 대상 계산
-        String title = n.getTitle();
+        String title = Optional.ofNullable(n.getTitle()).orElse("");
         String link  = n.getLink();
+        Set<Long> targets = new LinkedHashSet<>();
 
         // 2-a) 전역 키워드 구독자
         List<Long> matchedGlobalIds = n.getKeywords().stream().map(Keyword::getId).toList();
-        Set<Long> targets = new LinkedHashSet<>();
         if (!matchedGlobalIds.isEmpty()) {
             userRepo.findAllBySubscribedKeywords_IdIn(matchedGlobalIds)
                     .forEach(u -> targets.add(u.getId()));
         }
 
-        // 2-b) 개인 키워드 소유자(제목 포함)
-        keywordRepo.findAllByScope(Scope.USER).forEach(k -> {
-            if (containsIgnoreCase(title, k.getPhrase()) && k.getOwnerId() != null) {
-                targets.add(k.getOwnerId());
-            }
-        });
+        // 2-b) 개인 키워드 소유자(제목 포함) - dB에서 바로 매칭
+        keywordRepo.findOwnerIdsMatchedByTitle(title).forEach(targets::add);
 
         // 3) 사용자 토픽으로 전송
-        if (!targets.isEmpty()) {
-            for (Long uid : targets) {
-                push.sendToUserTopic(uid, type, title, link);
-            }
+        for (Long uid : targets) {
+            push.sendToUserTopic(uid, type, title, link);
         }
     }
 }

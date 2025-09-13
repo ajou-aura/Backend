@@ -101,13 +101,14 @@ public class AuthController {
     @ResponseStatus(HttpStatus.SEE_OTHER)
     public void callback(@RequestParam String code,
                          @RequestParam(required = false, defaultValue = "web") String state,
+                         @RequestParam(required = false) String mode,
                          HttpServletResponse res) throws IOException {
-        // 구글에서 받은 코드를 통해 토큰 발급
-        log.info("[CTRL] OAuth callback received, code={}, state={}", code, state);
+        String flow = (state != null ? state : mode);  // 둘 중 아무거나 받기
+        log.info("[CTRL] OAuth callback received, code={}, state={}, mode={}", code, state, mode);
 
         LoginResponseDto dto = authService.loginWithGoogle(code);
 
-        if ("app".equalsIgnoreCase(state)) {
+        if ("app".equalsIgnoreCase(flow)) {
             // 앱 모드: 딥링크로 토큰 전달
             String target = UriComponentsBuilder.fromUriString("aura://oauth-callback")
                     .queryParam("accessToken", dto.accessToken())
@@ -115,8 +116,7 @@ public class AuthController {
                     .queryParam("signUp", dto.signUp())
                     .build().toUriString();
 
-            res.setStatus(HttpStatus.SEE_OTHER.value());
-            res.setHeader(HttpHeaders.LOCATION, target);
+            res.sendRedirect(target);  // 302
             return;
         }
 
@@ -131,8 +131,7 @@ public class AuthController {
                 .queryParam("signUp", dto.signUp())
                 .build().toUriString();
 
-        res.setStatus(HttpStatus.SEE_OTHER.value());
-        res.setHeader(HttpHeaders.LOCATION, target);
+        res.sendRedirect(target); // 302
         log.info("[CTRL] Redirecting back to frontend with tokens: {}", target);
     }
 

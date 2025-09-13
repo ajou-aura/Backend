@@ -16,6 +16,10 @@ public class PushNotificationService {
 
     // 기존: 전체 토픽(notices) 팬아웃
     public void sendPushNotification(List<NoticeDto> newNotices, String type) {
+        if (newNotices == null || newNotices.isEmpty()) {
+            logger.info("No notices to send");
+            return;
+        }
         for (NoticeDto notice : newNotices) {
             sendToTopic("notices", type, notice.title(), notice.link());
         }

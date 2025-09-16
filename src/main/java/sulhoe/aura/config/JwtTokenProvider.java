@@ -19,8 +19,8 @@ public class JwtTokenProvider {
     private String secretKey;              // application.properties 에서 Base64로 인코딩된 키
 
     private SecretKey signingKey;
-    private static final long ACCESS_EXP  = 1000L * 60;        // 1분
-    public static final long WEB_ACCESS_EXP = 1000L * 60;
+    private static final long ACCESS_EXP  = 1000L * 60 * 60;        // 1시간
+    public static final long WEB_ACCESS_EXP = 1000L * 60 * 60;
     private static final long REFRESH_EXP = 1000L * 60 * 60 * 24;   // 1일
     public static final long REFRESH_EXPIRY_SECONDS = REFRESH_EXP / 1000;  // 쿠키 maxAge용
 
@@ -70,6 +70,7 @@ public class JwtTokenProvider {
     // 토큰 유효성 검사
     public boolean validateToken(String token) {
         try {
+            jwtParser.parseClaimsJws(token);
             Jwts.parserBuilder()
                     .setSigningKey(signingKey)
                     .build()
@@ -96,11 +97,7 @@ public class JwtTokenProvider {
 
     // Claims 꺼내기
     private Claims getClaims(String token) {
-        return Jwts.parserBuilder()
-                .setSigningKey(signingKey)
-                .build()
-                .parseClaimsJws(token)
-                .getBody();
+        return jwtParser.parseClaimsJws(token).getBody();
     }
 
     public String getEmail(String token) {

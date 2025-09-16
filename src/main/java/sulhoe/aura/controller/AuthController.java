@@ -1,6 +1,5 @@
 package sulhoe.aura.controller;
 
-import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -189,9 +188,13 @@ public class AuthController {
             return ResponseEntity.status(401).build();
         }
 
+        String email = jwt.getEmail(token);
+        String webRefresh = authService.ssoRefresh(email);
+
         // 유효한 Access JWT를 그대로 WEB_SESSION으로 내려 프론트가 쿠키 기반 사용
         return ResponseEntity.status(302)
                 .header(HttpHeaders.SET_COOKIE, webSessionCookie(token).toString())
+                .header(HttpHeaders.SET_COOKIE, refreshCookie(webRefresh).toString())
                 .header(HttpHeaders.LOCATION, frontendUrl + "?embed=app")
                 .build();
     }

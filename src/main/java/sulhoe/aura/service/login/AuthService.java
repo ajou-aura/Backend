@@ -54,12 +54,8 @@ public class AuthService {
             user = optUser.get();
             // 이름이 바뀌었을 수도 있으니 업데이트
             user.setName(info.name());
-            // RT가 없거나(이전 버전 사용자) 만료 임박이면 교체
-            String currentRt = user.getRefreshToken();
-            if (currentRt == null || jwtTokenProvider.isExpiringSoon(currentRt, /*sec*/ 3600)) { // 1h 이내 만료면 교체
-                String refreshed = jwtTokenProvider.createRefreshToken(info.email());
-                user.setRefreshToken(refreshed);
-            }
+            // 항상 새 RT 발급 (기존 만료/임박 체크 제거)
+            user.setRefreshToken(jwtTokenProvider.createRefreshToken(info.email()));
             user = userRepository.save(user);
             log.debug("[AUTH] Existing user updated");
         }
@@ -101,5 +97,19 @@ public class AuthService {
         log.debug("[AUTH] New access token length: {}", newAccess.length());
 
         return new LoginResponseDto(newAccess, newRefresh, false);
+    }
+
+    @Transactional
+    public String ssoRefresh(String email) {
+        var user = userRepository.findByEmail(email)
+                .orElseThrow(() -> new RuntimeException("User not found: " + email));
+
+        String newRefresh = jwtTokenProvider.createRefreshToken(email);
+        // 단일 RT 구조: 새 RT로 교체(기존 RT 무효화)
+        user.setRefreshToken(newRefresh);
+        userRepository.save(user);
+
+        log.debug("[AUTH] Issued new refresh for web SSO, user={}", email);
+        return newRefresh;
     }
 }

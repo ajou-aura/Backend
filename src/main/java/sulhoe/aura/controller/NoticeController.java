@@ -44,18 +44,23 @@ public class NoticeController {
      *   &search=등록
      *   &globalIds=1,2
      *   &personalIds=10,11
+     *   &match=any|all   // 추가: 키워드 매칭 방식 (기본 any)
      *   &page=0&size=10&sort=date,desc
      *
-     * - 키워드가 전달되면 "키워드 매칭" (전역 OR 개인)
-     * - search 는 항상 AND로 추가 필터 (없으면 무시)
-     * - 키워드/검색 둘 다 없으면 전체/타입별 목록
+     * 규칙:
+     * - search 가 주어지면 "검색 모드"로 동작하고, 키워드 파라미터는 **무시**.
+     * - search 가 없고 globalIds/personalIds 중 하나라도 있으면 "키워드 매칭 모드".
+     *   - match=any(기본): 전달된 키워드 중 하나라도 매칭되면 포함(OR).
+     *   - match=all       : 전달된 키워드가 **전부** 매칭되어야 포함(AND).
+     * - 둘 다 없으면 기본 목록(전체 또는 type 필터만).
      */
     @GetMapping("/page")
     public ResponseEntity<ApiResponse<Page<NoticeDto>>> getPagedNotices(
             @RequestParam(value = "type",   required = false) String type,
             @RequestParam(value = "search", required = false) String search,
-            @RequestParam(value = "globalIds",  required = false) List<Long> globalIds,
-            @RequestParam(value = "personalIds",required = false) List<Long> personalIds,
+            @RequestParam(value = "globalIds",   required = false) List<Long> globalIds,
+            @RequestParam(value = "personalIds", required = false) List<Long> personalIds,
+            @RequestParam(value = "match",  required = false, defaultValue = "any") String match,
             @PageableDefault(size = 10, sort = "date", direction = Sort.Direction.DESC)
             Pageable pageable
     ) {
@@ -63,34 +68,57 @@ public class NoticeController {
         globalIds   = (globalIds   == null) ? Collections.emptyList() : globalIds;
         personalIds = (personalIds == null) ? Collections.emptyList() : personalIds;
 
-        Page<Notice> pages;
+        // 1) 검색 모드: search가 있으면 키워드 파라미터는 무시
+        if (search != null && !search.isBlank()) {
+            Page<Notice> pages = (type != null)
+                    ? noticeRepository.findByTypeAndTitleContainingIgnoreCase(type, search, pageable)
+                    : noticeRepository.findByTitleContainingIgnoreCase(search, pageable);
+            return ResponseEntity.ok(ApiResponse.success(pages.map(NoticeDto::fromEntity)));
+        }
+
+        // 2) 키워드 매칭 모드
         boolean hasGlobal   = !globalIds.isEmpty();
         boolean hasPersonal = !personalIds.isEmpty();
         boolean hasKeyword  = hasGlobal || hasPersonal;
 
+        Page<Notice> pages;
         if (hasKeyword) {
+            boolean all = "all".equalsIgnoreCase(match);
             Long uid = currentUserId();
 
-            if (hasGlobal && hasPersonal) {
-                pages = noticeRepository.findByGlobalOrPersonalKeywordIdsWithSearch(
-                        uid, type, globalIds, personalIds, search, pageable
-                );
-            } else if (hasGlobal) {
-                pages = noticeRepository.findByGlobalKeywordIdsWithSearch(
-                        type, globalIds, search, pageable
-                );
-            } else { // personal only
-                pages = noticeRepository.findByPersonalKeywordIdsWithSearch(
-                        uid, type, personalIds, search, pageable
-                );
+            if (all) {
+                // AND 매칭
+                if (hasGlobal && hasPersonal) {
+                    pages = noticeRepository.findByGlobalAndPersonalKeywordIdsAll(
+                            uid, type, globalIds, globalIds.size(), personalIds, personalIds.size(), pageable
+                    );
+                } else if (hasGlobal) {
+                    pages = noticeRepository.findByGlobalKeywordIdsAll(
+                            type, globalIds, globalIds.size(), pageable
+                    );
+                } else { // personal only
+                    pages = noticeRepository.findByPersonalKeywordIdsAll(
+                            uid, type, personalIds, personalIds.size(), pageable
+                    );
+                }
+            } else {
+                // ANY 매칭 (OR)
+                if (hasGlobal && hasPersonal) {
+                    pages = noticeRepository.findByGlobalOrPersonalKeywordIdsAny(
+                            uid, type, globalIds, personalIds, pageable
+                    );
+                } else if (hasGlobal) {
+                    pages = noticeRepository.findByGlobalKeywordIdsAny(
+                            type, globalIds, pageable
+                    );
+                } else { // personal only
+                    pages = noticeRepository.findByPersonalKeywordIdsAny(
+                            uid, type, personalIds, pageable
+                    );
+                }
             }
-        } else if (search != null && !search.isBlank()) {
-            // 자유 검색
-            pages = (type != null)
-                    ? noticeRepository.findByTypeAndTitleContainingIgnoreCase(type, search, pageable)
-                    : noticeRepository.findByTitleContainingIgnoreCase(search, pageable);
         } else {
-            // 전체/카테고리만
+            // 3) 기본 목록
             pages = (type != null)
                     ? noticeRepository.findByType(type, pageable)
                     : noticeRepository.findAll(pageable);

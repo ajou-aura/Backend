@@ -15,37 +15,31 @@ public interface NoticeRepository extends JpaRepository<Notice, UUID> {
     Optional<Notice> findByLink(String link);
     boolean existsByType(String type);
 
-    // 카테고리 페이징
+    // 기본 페이징
     Page<Notice> findByType(String type, Pageable pageable);
-
-    // 제목 검색  페이징 (대소문자 무시, 부분일치)
     Page<Notice> findByTitleContainingIgnoreCase(String title, Pageable pageable);
-
-    // 카테고리 + 제목 검색  페이징
     Page<Notice> findByTypeAndTitleContainingIgnoreCase(String type, String title, Pageable pageable);
 
     @Query("select n from Notice n left join fetch n.keywords where n.id = :id")
     Optional<Notice> findByIdWithKeywords(@Param("id") UUID id);
 
-    /* ── 키워드 매칭 전용(전역/개인/혼합 + search AND) ───────────────────────── */
+    /* ========== 키워드 매칭: ANY (OR) ========== */
 
-    // 전역 키워드만: notice_keywords 조인
+    // 전역 키워드 ANY
     @Query("""
         select distinct n
         from Notice n
           join n.keywords gk
         where (:type is null or n.type = :type)
           and gk.id in :globalIds
-          and (:search is null or lower(n.title) like concat('%', lower(:search), '%'))
         """)
-    Page<Notice> findByGlobalKeywordIdsWithSearch(
+    Page<Notice> findByGlobalKeywordIdsAny(
             @Param("type") String type,
             @Param("globalIds") List<Long> globalIds,
-            @Param("search") String search,
             Pageable pageable
     );
 
-    // 개인 키워드만: 제목 LIKE + 소유자 검증
+    // 개인 키워드 ANY (현재 사용자 소유 + 제목 포함)
     @Query("""
         select distinct n
         from Notice n
@@ -56,24 +50,22 @@ public interface NoticeRepository extends JpaRepository<Notice, UUID> {
                 and k.ownerId = :userId
                 and lower(n.title) like concat('%', lower(k.phrase), '%')
           )
-          and (:search is null or lower(n.title) like concat('%', lower(:search), '%'))
         """)
-    Page<Notice> findByPersonalKeywordIdsWithSearch(
+    Page<Notice> findByPersonalKeywordIdsAny(
             @Param("userId") Long userId,
             @Param("type") String type,
             @Param("personalIds") List<Long> personalIds,
-            @Param("search") String search,
             Pageable pageable
     );
 
-    // 전역 OR 개인(둘 다 전달된 경우): OR 결합 + search AND
+    // 전역 OR 개인 ANY 혼합
     @Query("""
         select distinct n
         from Notice n
           left join n.keywords gk
         where (:type is null or n.type = :type)
           and (
-               gk.id in :globalIds
+               ( :globalIds is not null and gk.id in :globalIds )
             or exists (
                  select 1 from Keyword k
                  where k.id in :personalIds
@@ -81,14 +73,98 @@ public interface NoticeRepository extends JpaRepository<Notice, UUID> {
                    and lower(n.title) like concat('%', lower(k.phrase), '%')
             )
           )
-          and (:search is null or lower(n.title) like concat('%', lower(:search), '%'))
         """)
-    Page<Notice> findByGlobalOrPersonalKeywordIdsWithSearch(
+    Page<Notice> findByGlobalOrPersonalKeywordIdsAny(
             @Param("userId") Long userId,
             @Param("type") String type,
             @Param("globalIds") List<Long> globalIds,
             @Param("personalIds") List<Long> personalIds,
-            @Param("search") String search,
+            Pageable pageable
+    );
+
+    /* ========== 키워드 매칭: ALL (AND) ========== */
+    // 전역 키워드 ALL: 모든 globalIds가 notice_keywords 에 있어야 함
+    @Query("""
+        select n
+        from Notice n
+        where (:type is null or n.type = :type)
+          and ( :globalCount = 0
+                or n.id in (
+                    select n2.id
+                    from Notice n2
+                      join n2.keywords g2
+                    where g2.id in :globalIds
+                    group by n2.id
+                    having count(distinct g2.id) = :globalCount
+                )
+              )
+        """)
+    Page<Notice> findByGlobalKeywordIdsAll(
+            @Param("type") String type,
+            @Param("globalIds") List<Long> globalIds,
+            @Param("globalCount") int globalCount,
+            Pageable pageable
+    );
+
+    // 개인 키워드 ALL: 제목이 내 personalIds 모든 phrase 를 포함해야 함
+    @Query("""
+        select n
+        from Notice n
+        where (:type is null or n.type = :type)
+          and ( :personalCount = 0
+                or n.id in (
+                    select n3.id
+                    from Notice n3, Keyword k
+                    where k.id in :personalIds
+                      and k.ownerId = :userId
+                      and lower(n3.title) like concat('%', lower(k.phrase), '%')
+                    group by n3.id
+                    having count(distinct k.id) = :personalCount
+                )
+              )
+        """)
+    Page<Notice> findByPersonalKeywordIdsAll(
+            @Param("userId") Long userId,
+            @Param("type") String type,
+            @Param("personalIds") List<Long> personalIds,
+            @Param("personalCount") int personalCount,
+            Pageable pageable
+    );
+
+    // 전역 + 개인 ALL: 두 조건을 모두 만족해야 함
+    @Query("""
+        select n
+        from Notice n
+        where (:type is null or n.type = :type)
+          and (
+                :globalCount = 0 or n.id in (
+                    select n2.id
+                    from Notice n2
+                      join n2.keywords g2
+                    where g2.id in :globalIds
+                    group by n2.id
+                    having count(distinct g2.id) = :globalCount
+                )
+              )
+          and (
+                :personalCount = 0 or n.id in (
+                    select n3.id
+                    from Notice n3, Keyword k
+                    where k.id in :personalIds
+                      and k.ownerId = :userId
+                      and lower(n3.title) like concat('%', lower(k.phrase), '%')
+                    group by n3.id
+                    having count(distinct k.id) = :personalCount
+                )
+              )
+        """)
+    Page<Notice> findByGlobalAndPersonalKeywordIdsAll(
+            @Param("userId") Long userId,
+            @Param("type") String type,
+            @Param("globalIds") List<Long> globalIds,
+            @Param("globalCount") int globalCount,
+            @Param("personalIds") List<Long> personalIds,
+            @Param("personalCount") int personalCount,
             Pageable pageable
     );
 }

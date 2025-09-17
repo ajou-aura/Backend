@@ -20,7 +20,10 @@ public class JwtTokenProvider {
 
     private SecretKey signingKey;
     private static final long ACCESS_EXP  = 1000L * 60 * 60;        // 1시간
+
     public static final long WEB_ACCESS_EXP = 1000L * 60 * 60;
+    public static final long WEB_ACCESS_EXPIRY_SECONDS = WEB_ACCESS_EXP / 1000;
+
     private static final long REFRESH_EXP = 1000L * 60 * 60 * 24;   // 1일
     public static final long REFRESH_EXPIRY_SECONDS = REFRESH_EXP / 1000;  // 쿠키 maxAge용
 
@@ -70,12 +73,7 @@ public class JwtTokenProvider {
     // 토큰 유효성 검사
     public boolean validateToken(String token) {
         try {
-            jwtParser.parseClaimsJws(token);
-            Jwts.parserBuilder()
-                    .setSigningKey(signingKey)
-                    .build()
-                    .parseClaimsJws(token);
-
+            jwtParser.parseClaimsJws(token); // 스큐 허용으로 이미 빌드됨
             log.info("[JWT-VALID] token valid, sub={}", getEmail(token));
             return true;
         } catch (JwtException | IllegalArgumentException e) {

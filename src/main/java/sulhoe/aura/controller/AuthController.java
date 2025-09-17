@@ -4,11 +4,9 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseCookie;
-import org.springframework.http.ResponseEntity;
+import org.springframework.http.*;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.util.HtmlUtils;
 import org.springframework.web.util.UriComponentsBuilder;
 import sulhoe.aura.config.JwtTokenProvider;
 import sulhoe.aura.dto.ApiResponse;
@@ -18,6 +16,7 @@ import sulhoe.aura.service.login.AuthService;
 import java.io.IOException;
 import java.util.Map;
 import org.springframework.security.web.csrf.CsrfToken;
+import sulhoe.aura.service.login.SsoTicketService;
 
 @Slf4j
 @RestController
@@ -27,6 +26,7 @@ public class AuthController {
 
     private final AuthService authService;
     private final JwtTokenProvider jwt;
+    private final SsoTicketService ssoTicketService;
 
     @Value("${oauth.google.client-id}")
     private String clientId;
@@ -64,7 +64,7 @@ public class AuthController {
                 .secure(true)
                 .sameSite("None")
                 .path("/")
-                .maxAge(JwtTokenProvider.WEB_ACCESS_EXP)
+                .maxAge(JwtTokenProvider.WEB_ACCESS_EXPIRY_SECONDS)
                 .build();
     }
 
@@ -100,21 +100,18 @@ public class AuthController {
     @ResponseStatus(HttpStatus.SEE_OTHER)
     public void callback(@RequestParam String code,
                          @RequestParam(required = false, defaultValue = "web") String state,
-                         @RequestParam(required = false) String mode,
                          HttpServletResponse res) throws IOException {
-        String flow = (state != null ? state : mode);  // 둘 중 아무거나 받기
-        log.info("[CTRL] OAuth callback received, code={}, state={}, mode={}", code, state, mode);
 
         LoginResponseDto dto = authService.loginWithGoogle(code);
 
-        if ("app".equalsIgnoreCase(flow)) {
-            // 앱 모드: 딥링크로 토큰 전달
-            String target = UriComponentsBuilder.fromUriString("aura://oauth-callback")
-                    .queryParam("accessToken", dto.accessToken())
-                    .queryParam("refreshToken", dto.refreshToken())
-                    .queryParam("signUp", dto.signUp())
-                    .build().toUriString();
+        if ("app".equalsIgnoreCase(state)) {
+            String email = jwt.getEmail(dto.accessToken());
+            String name  = jwt.getName(dto.accessToken());
+            String ticket = ssoTicketService.issue(email, name, dto.signUp());
 
+            String target = UriComponentsBuilder.fromUriString("aura://oauth-callback")
+                    .queryParam("code", ticket)
+                    .build(true).toUriString();
             res.sendRedirect(target);  // 302
             return;
         }
@@ -177,25 +174,47 @@ public class AuthController {
         }
     }
 
-
-    // 앱 -> 웹 SSO 브리지 (Bearer Access를 WEB_SESSION 쿠키로 주입)
-    @GetMapping("/sso/webview")
-    public ResponseEntity<Void> ssoWebView(
-            @RequestHeader(name = "Authorization", required = false) String authz) {
-
-        String token = (authz != null && authz.startsWith("Bearer ")) ? authz.substring(7) : null;
-        if (token == null || !jwt.validateToken(token)) {
-            return ResponseEntity.status(401).build();
+    @GetMapping("/sso/bridge")
+    public ResponseEntity<String> ssoBridge(@RequestParam("code") String ticket) {
+        var payload = ssoTicketService.consume(ticket); // 1회성, 짧은 TTL 검증
+        if (payload == null) {
+            return ResponseEntity.status(401).contentType(MediaType.TEXT_PLAIN)
+                    .body("Invalid or expired SSO ticket");
         }
 
-        String email = jwt.getEmail(token);
-        String webRefresh = authService.ssoRefresh(email);
+        // 필요 정보 복원
+        String email = payload.email();
+        String name  = payload.name();
+        boolean signUp = payload.signUp();
 
-        // 유효한 Access JWT를 그대로 WEB_SESSION으로 내려 프론트가 쿠키 기반 사용
-        return ResponseEntity.status(302)
-                .header(HttpHeaders.SET_COOKIE, webSessionCookie(token).toString())
-                .header(HttpHeaders.SET_COOKIE, refreshCookie(webRefresh).toString())
-                .header(HttpHeaders.LOCATION, frontendUrl + "?embed=app")
-                .build();
+        // 쿠키용 토큰 발급 (여기서만 새로 만들어 WebView 쿠키저장소에 심김)
+        String access  = jwt.createAccessToken(email, name);
+        String refresh = authService.ssoRefresh(email); // RT 회전(단일 RT 정책)
+
+        String target = UriComponentsBuilder.fromUriString(frontendUrl)
+                .queryParam("embed", "app")
+                .queryParam("signUp", signUp)
+                .build(true).toUriString();
+
+        String safeAttr = HtmlUtils.htmlEscape(target);
+        String safeJs   = target.replace("\\","\\\\").replace("<","\\x3C")
+                .replace(">","\\x3E").replace("&","\\x26")
+                .replace("\"","\\\"").replace("'","\\'");
+
+        String html = """
+    <!doctype html>
+    <meta name="color-scheme" content="light dark">
+    <title>Signing you in…</title>
+    <meta http-equiv="refresh" content="0; url=%s">
+    <script>try{window.location.replace('%s')}catch(e){location.href='%s'}</script>
+    """.formatted(safeAttr, safeJs, safeJs);
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, webSessionCookie(access).toString())
+                .header(HttpHeaders.SET_COOKIE, refreshCookie(refresh).toString())
+                .header(HttpHeaders.CACHE_CONTROL, "no-store")
+                .contentType(MediaType.TEXT_HTML)
+                .body(html);
     }
+
 }

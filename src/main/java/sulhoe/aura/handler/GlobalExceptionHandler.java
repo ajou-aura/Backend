@@ -4,6 +4,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.server.ResponseStatusException;
 import sulhoe.aura.dto.ApiResponse;
 
 import java.util.List;
@@ -41,4 +42,34 @@ public class GlobalExceptionHandler {
                 ))
         );
     }
+
+    @ExceptionHandler(sulhoe.aura.handler.ApiException.class)
+    public ResponseEntity<ApiResponse<Object>> handleApiException(sulhoe.aura.handler.ApiException ex) {
+        return ResponseEntity.status(ex.getStatus()).body(
+                ApiResponse.error(
+                        ex.getStatus().value(),
+                        ex.getMessage(),
+                        Map.of("errors", List.of(Map.of(
+                                "code", ex.getErrorCode(),
+                                "field", ex.getField(),
+                                "message", ex.getMessage()
+                        )))
+                )
+        );
+    }
+
+    @ExceptionHandler(org.springframework.web.server.ResponseStatusException.class)
+    public ResponseEntity<ApiResponse<Object>> handleRSE(ResponseStatusException ex) {
+        int http = ex.getStatusCode().value();
+        String msg = ex.getReason() != null ? ex.getReason() : "요청 형식이 올바르지 않습니다.";
+        return ResponseEntity.status(ex.getStatusCode()).body(
+                ApiResponse.error(http, msg, Map.of(
+                        "errors", List.of(Map.of(
+                                "code", http == 400 ? "VALIDATION_ERROR" : "GENERIC_ERROR",
+                                "message", msg
+                        ))
+                ))
+        );
+    }
+
 }

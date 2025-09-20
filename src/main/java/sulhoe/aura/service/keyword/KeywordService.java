@@ -37,14 +37,23 @@ public class KeywordService {
     @Value("${app.keywords.retag-on-start:false}")
     private boolean retagOnStart;
 
+    private Set<String> cachedGlobalNorms;
+    private void refreshGlobalCache() {
+        this.cachedGlobalNorms = keywordRepo.findAllByScope(Scope.GLOBAL).stream()
+                .map(Keyword::getPhrase)
+                .map(KeywordService::normalizeForCompare)
+                .collect(Collectors.toUnmodifiableSet());
+    }
+
     // 부팅 시
     @EventListener(ApplicationReadyEvent.class)
     @Transactional
     public void initOnReady() {
         seedGlobalsIfNeeded();   // 아래로 분리
-        if (retagOnStart) {
+        refreshGlobalCache();
+        if (retagOnStart)
             retagAll();          // 아래로 분리
-        }
+
     }
 
     @Transactional
@@ -83,33 +92,73 @@ public class KeywordService {
     public void tagNoticeWithGlobalKeywords(Notice managed, List<Keyword> globals) {
         final String title = Optional.ofNullable(managed.getTitle()).orElse("");
 
-        Set<Keyword> matched = globals.stream()
-                .filter(k -> containsIgnoreCase(title, k.getPhrase()))
-                .collect(Collectors.toCollection(LinkedHashSet::new));
+        // 기존 글로벌만 제거
+        managed.getKeywords().removeIf(k -> k.getScope() == Scope.GLOBAL);
 
-        managed.getKeywords().clear();
-        managed.getKeywords().addAll(matched);
-        // 같은 영속성 컨텍스트 안이므로 save() 불필요
+        // 매칭된 글로벌만 추가
+        globals.stream()
+                .filter(k -> containsIgnoreCase(title, k.getPhrase()))
+                .forEach(managed.getKeywords()::add);
     }
 
     /* ===== 유틸 ===== */
     private static boolean containsIgnoreCase(String haystack, String needle) {
         if (haystack == null || needle == null) return false;
-        String h = haystack.toLowerCase().replaceAll("\\s+", " ").trim();
-        String n = needle.toLowerCase().replaceAll("\\s+", " ").trim();
+        String h = normalizeForCompare(haystack);
+        String n = normalizeForCompare(needle);
         return !n.isEmpty() && h.contains(n);
     }
 
     /* ===== 개인 키워드 CRUD ===== */
     @Transactional
     public Keyword addMyKeyword(Long ownerId, String phrase) {
-        if (keywordRepo.existsByOwnerIdAndPhraseIgnoreCase(ownerId, phrase)) {
-            return keywordRepo.findAllByOwnerId(ownerId).stream()
-                    .filter(k -> k.getPhrase().equalsIgnoreCase(phrase))
-                    .findFirst().orElseThrow();
+        final String norm = normalizeForCompare(phrase);
+        if (norm.isEmpty()) {
+            throw new sulhoe.aura.handler.ApiException(
+                    org.springframework.http.HttpStatus.BAD_REQUEST,
+                    "요청 형식이 올바르지 않습니다.",
+                    "VALIDATION_ERROR",
+                    "phrase"
+            );
         }
+        // (A) 전역 키워드 충돌: GLOBAL만 읽어 정규화 후 비교
+        if (cachedGlobalNorms == null) {
+            refreshGlobalCache(); // 아래 헬퍼
+        }
+        final boolean conflictsWithGlobal =
+                cachedGlobalNorms.contains(norm) // 캐시 히트
+                        || keywordRepo.findAllByScope(Scope.GLOBAL).stream() // 극히 드문 캐시 미스 대비
+                        .map(Keyword::getPhrase)
+                        .map(KeywordService::normalizeForCompare)
+                        .anyMatch(norm::equals);
+
+        if (conflictsWithGlobal) {
+            // 409 CONFLICT: 전역 키워드와 동일(정규화 기준)
+            throw new sulhoe.aura.handler.ApiException(
+                    org.springframework.http.HttpStatus.CONFLICT,
+                    "전역 키워드와 중복될 수 없습니다.",
+                    "CONFLICT_WITH_GLOBAL",
+                    "phrase"
+            );
+        }
+
+        // (B) 개인 키워드 중복: 소유자 보유 키워드를 정규화해 비교(공백/문자폭까지 동일 차단)
+        final Optional<Keyword> dup = keywordRepo.findAllByOwnerId(ownerId).stream()
+                .filter(k -> normalizeForCompare(k.getPhrase()).equals(norm))
+                .findFirst();
+
+        if (dup.isPresent()) {
+            throw new sulhoe.aura.handler.ApiException(
+                    org.springframework.http.HttpStatus.CONFLICT,
+                    "이미 추가된 키워드입니다.",
+                    "DUPLICATE_PERSONAL",
+                    "phrase"
+            );
+        }
+
+        // (C) 저장: 표시용 원문은 trim만 권장(보이기 예쁨)
         return keywordRepo.save(Keyword.builder()
-                .phrase(phrase)
+                .phrase(phrase == null ? "" : phrase.trim())
                 .scope(Scope.USER)
                 .ownerId(ownerId)
                 .build());
@@ -185,5 +234,20 @@ public class KeywordService {
         for (Long uid : targets) {
             push.sendToUserTopic(uid, type, title, link);
         }
+    }
+
+    /* ===== 유틸 ===== */
+    private static String normalizeForCompare(String s) {
+        if (s == null) return "";
+        // 1) 트림
+        String t = s.trim();
+        // 2) 유니코드 정규화(NFKC: 전각/반각, 합성문자 등 통합)
+        t = java.text.Normalizer.normalize(t, java.text.Normalizer.Form.NFKC);
+        // 3) 소문자(루트 로케일)
+        t = t.toLowerCase(java.util.Locale.ROOT);
+        // 4) 연속 공백 축약
+        t = t.replaceAll("\\s+", " ");
+        // 5) 최종 트림
+        return t.trim();
     }
 }

@@ -77,7 +77,7 @@ public class KeywordController {
     }
 
     // 내 전역 구독 목록 ID
-    @GetMapping("/subscriptions")
+    @GetMapping("/subscriptions/global")
     public ResponseEntity<ApiResponse<List<Long>>> mySubs() {
         Long uid = currentUserId();
         return ResponseEntity.ok(ApiResponse.success(keywordService.myGlobalSubscriptionIds(uid)));

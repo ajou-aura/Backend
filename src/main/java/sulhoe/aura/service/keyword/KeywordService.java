@@ -1,6 +1,5 @@
 package sulhoe.aura.service.keyword;
 
-import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -204,7 +203,7 @@ public class KeywordService {
         return res;
     }
 
-    /* ===== 전역 키워드 구독/해지 ===== */
+    // 전역 키워드 구독/해지
     @Transactional
     public void subscribeGlobal(Long ownerId, Long globalKeywordId) {
         Keyword g = keywordRepo.findById(globalKeywordId).orElseThrow();
@@ -214,6 +213,7 @@ public class KeywordService {
         userRepo.save(u);
     }
 
+    // 전역 구독 해지
     @Transactional
     public void unsubscribeGlobal(Long ownerId, Long globalKeywordId) {
         User u = userRepo.findById(ownerId).orElseThrow();
@@ -221,12 +221,14 @@ public class KeywordService {
         userRepo.save(u);
     }
 
+    // 전역 구독 목록
     @Transactional(readOnly = true)
-    public List<Long> mySubscriptionIds(Long ownerId) {
+    public List<Long> myGlobalSubscriptionIds(Long ownerId) {
         return userRepo.findById(ownerId).orElseThrow()
                 .getSubscribedKeywords().stream().map(Keyword::getId).toList();
     }
 
+    // 개인 구독
     @Transactional
     public void subscribePersonal(Long userId, Long personalKeywordId) {
         Keyword k = keywordRepo.findById(personalKeywordId).orElseThrow();
@@ -244,6 +246,7 @@ public class KeywordService {
         userRepo.save(u);
     }
 
+    // 개인 구독 해지
     @Transactional
     public void unsubscribePersonal(Long userId, Long personalKeywordId) {
         User u = userRepo.findById(userId).orElseThrow();
@@ -251,6 +254,7 @@ public class KeywordService {
         userRepo.save(u);
     }
 
+    // 개인 구독 목록
     @Transactional(readOnly = true)
     public List<Long> myPersonalSubscriptionIds(Long userId) {
         return userRepo.findById(userId).orElseThrow()

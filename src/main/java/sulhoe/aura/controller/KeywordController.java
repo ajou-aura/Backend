@@ -2,7 +2,6 @@ package sulhoe.aura.controller;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -37,7 +36,7 @@ public class KeywordController {
         return userRepo.findByEmail(email).orElseThrow().getId();
     }
 
-    /** 전체 키워드(전역 + 내 개인) */
+    // 전체 키워드 목록 (전역 + 내 개인)
     @GetMapping
     public ResponseEntity<ApiResponse<List<Keyword>>> list() {
         Long uid = currentUserId();
@@ -52,7 +51,7 @@ public class KeywordController {
         return ResponseEntity.created(URI.create("/keywords/" + k.getId())).body(ApiResponse.success(k));
     }
 
-    /** 내 개인 키워드 삭제 */
+    // 내 개인 키워드 삭제
     @DeleteMapping("/{id}")
     public ResponseEntity<ApiResponse<Void>> delete(@PathVariable Long id) {
         Long uid = currentUserId();
@@ -60,7 +59,7 @@ public class KeywordController {
         return ResponseEntity.ok(ApiResponse.success(null));
     }
 
-    /** 전역 키워드 구독 */
+    // 전역 키워드 구독
     @PostMapping("/subscribe/{globalKeywordId}")
     public ResponseEntity<ApiResponse<Void>> subscribe(@PathVariable Long globalKeywordId) {
         Long uid = currentUserId();
@@ -69,7 +68,7 @@ public class KeywordController {
                 .body(ApiResponse.success(null));
     }
 
-    /** 전역 키워드 구독 해지 */
+    // 전역 키워드 구독 해지
     @DeleteMapping("/subscribe/{globalKeywordId}")
     public ResponseEntity<ApiResponse<Void>> unsubscribe(@PathVariable Long globalKeywordId) {
         Long uid = currentUserId();
@@ -77,11 +76,11 @@ public class KeywordController {
         return ResponseEntity.ok(ApiResponse.success(null));
     }
 
-    /** (선택) 내 전역 구독 목록 ID */
+    // 내 전역 구독 목록 ID
     @GetMapping("/subscriptions")
     public ResponseEntity<ApiResponse<List<Long>>> mySubs() {
         Long uid = currentUserId();
-        return ResponseEntity.ok(ApiResponse.success(keywordService.mySubscriptionIds(uid)));
+        return ResponseEntity.ok(ApiResponse.success(keywordService.myGlobalSubscriptionIds(uid)));
     }
 
     // 개인 키워드 구독

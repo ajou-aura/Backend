@@ -286,8 +286,11 @@ public class KeywordService {
                     .forEach(u -> targets.add(u.getId()));
         }
 
-        // 2-b) 개인 키워드 소유자(제목 포함) - dB에서 바로 매칭
-        keywordRepo.findOwnerIdsMatchedByTitle(title).forEach(targets::add);
+        // 2-c) 개인 키워드 "구독자" (제목 매칭)
+        List<Long> matchedPersonalIds = keywordRepo.findAllByScope(Scope.USER).stream()
+                .filter(k -> containsIgnoreCase(title, k.getPhrase()))
+                .map(Keyword::getId)
+                .toList();
 
         // 3) 사용자 토픽으로 전송
         for (Long uid : targets) {

@@ -227,6 +227,39 @@ public class KeywordService {
                 .getSubscribedKeywords().stream().map(Keyword::getId).toList();
     }
 
+    @Transactional
+    public void subscribePersonal(Long userId, Long personalKeywordId) {
+        Keyword k = keywordRepo.findById(personalKeywordId).orElseThrow();
+        if (k.getScope() != Scope.USER) {
+            throw new sulhoe.aura.handler.ApiException(
+                    org.springframework.http.HttpStatus.BAD_REQUEST,
+                    "USER 키워드만 구독할 수 있습니다.",
+                    "ONLY_USER_ALLOWED",
+                    "personalKeywordId"
+            );
+        }
+
+        User u = userRepo.findById(userId).orElseThrow();
+        u.getSubscribedKeywords().add(k);
+        userRepo.save(u);
+    }
+
+    @Transactional
+    public void unsubscribePersonal(Long userId, Long personalKeywordId) {
+        User u = userRepo.findById(userId).orElseThrow();
+        u.getSubscribedKeywords().removeIf(k -> Objects.equals(k.getId(), personalKeywordId));
+        userRepo.save(u);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Long> myPersonalSubscriptionIds(Long userId) {
+        return userRepo.findById(userId).orElseThrow()
+                .getSubscribedKeywords().stream()
+                .filter(k -> k.getScope() == Scope.USER)
+                .map(Keyword::getId)
+                .toList();
+    }
+
     /**
      * 저장 직후 호출: 태깅 + FCM 대상 계산 + 전송
      * @param detachedNotice    저장(신규/업데이트)된 Notice

@@ -83,4 +83,29 @@ public class KeywordController {
         Long uid = currentUserId();
         return ResponseEntity.ok(ApiResponse.success(keywordService.mySubscriptionIds(uid)));
     }
+
+    // 개인 키워드 구독
+    @PostMapping("/subscribe/personal/{personalKeywordId}")
+    public ResponseEntity<ApiResponse<Void>> subscribePersonal(@PathVariable Long personalKeywordId) {
+        Long uid = currentUserId();
+        keywordService.subscribePersonal(uid, personalKeywordId);
+        return ResponseEntity
+                .created(URI.create("/keywords/subscribe/personal/" + personalKeywordId))
+                .body(ApiResponse.success(null));
+    }
+
+    /// 개인 키워드 구독 해지
+    @DeleteMapping("/subscribe/personal/{personalKeywordId}")
+    public ResponseEntity<ApiResponse<Void>> unsubscribePersonal(@PathVariable Long personalKeywordId) {
+        Long uid = currentUserId();
+        keywordService.unsubscribePersonal(uid, personalKeywordId);
+        return ResponseEntity.ok(ApiResponse.success(null));
+    }
+
+    // 내 개인 키워드 구독 목록 ID
+    @GetMapping("/subscriptions/personal")
+    public ResponseEntity<ApiResponse<List<Long>>> myPersonalSubs() {
+        Long uid = currentUserId();
+        return ResponseEntity.ok(ApiResponse.success(keywordService.myPersonalSubscriptionIds(uid)));
+    }
 }

@@ -292,6 +292,11 @@ public class KeywordService {
                 .map(Keyword::getId)
                 .toList();
 
+        if (!matchedPersonalIds.isEmpty()) {
+            userRepo.findAllBySubscribedKeywords_IdIn(matchedPersonalIds)
+                    .forEach(u -> targets.add(u.getId()));
+        }
+
         // 3) 사용자 토픽으로 전송
         for (Long uid : targets) {
             push.sendToUserTopic(uid, type, title, link);

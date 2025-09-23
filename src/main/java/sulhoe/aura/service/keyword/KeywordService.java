@@ -136,7 +136,7 @@ public class KeywordService {
             // 409 CONFLICT: 전역 키워드와 동일(정규화 기준)
             throw new sulhoe.aura.handler.ApiException(
                     org.springframework.http.HttpStatus.CONFLICT,
-                    "전역 키워드와 중복될 수 없습니다.",
+                    "기본 키워드와 중복될 수 없습니다.",
                     "CONFLICT_WITH_GLOBAL",
                     "phrase"
             );

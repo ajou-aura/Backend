@@ -166,7 +166,33 @@ public class KeywordService {
 
     @Transactional
     public void deleteMyKeyword(Long ownerId, Long keywordId) {
-        Keyword k = keywordRepo.findByIdAndOwnerId(keywordId, ownerId).orElseThrow();
+        Keyword k = keywordRepo.findById(keywordId).orElseThrow(() ->
+                new sulhoe.aura.handler.ApiException(
+                        org.springframework.http.HttpStatus.NOT_FOUND,
+                        "대상을 찾을 수 없습니다.",
+                        "NOT_FOUND",
+                        "id"
+                )
+        );
+        // 1) GLOBAL 삭제 시도 → 409
+        if (k.getScope() == Scope.GLOBAL) {
+            throw new sulhoe.aura.handler.ApiException(
+                    org.springframework.http.HttpStatus.CONFLICT,
+                    "기본 키워드는 삭제할 수 없습니다.",
+                    "GLOBAL_KEYWORD_DELETE_NOT_ALLOWED",
+                    "id"
+            );
+        }
+        // 2) 내 소유가 아니면 존재를 숨기고 404
+        if (!Objects.equals(k.getOwnerId(), ownerId)) {
+            throw new sulhoe.aura.handler.ApiException(
+                    org.springframework.http.HttpStatus.NOT_FOUND,
+                    "대상을 찾을 수 없습니다.",
+                    "NOT_FOUND",
+                    "id"
+            );
+        }
+        // 3) 삭제
         keywordRepo.delete(k);
     }
 

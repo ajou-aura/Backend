@@ -1,6 +1,5 @@
 package sulhoe.aura.service.keyword;
 
-import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -204,7 +203,7 @@ public class KeywordService {
         return res;
     }
 
-    /* ===== 전역 키워드 구독/해지 ===== */
+    // 전역 키워드 구독/해지
     @Transactional
     public void subscribeGlobal(Long ownerId, Long globalKeywordId) {
         Keyword g = keywordRepo.findById(globalKeywordId).orElseThrow();
@@ -214,6 +213,7 @@ public class KeywordService {
         userRepo.save(u);
     }
 
+    // 전역 구독 해지
     @Transactional
     public void unsubscribeGlobal(Long ownerId, Long globalKeywordId) {
         User u = userRepo.findById(ownerId).orElseThrow();
@@ -221,10 +221,47 @@ public class KeywordService {
         userRepo.save(u);
     }
 
+    // 전역 구독 목록
     @Transactional(readOnly = true)
-    public List<Long> mySubscriptionIds(Long ownerId) {
+    public List<Long> myGlobalSubscriptionIds(Long ownerId) {
         return userRepo.findById(ownerId).orElseThrow()
                 .getSubscribedKeywords().stream().map(Keyword::getId).toList();
+    }
+
+    // 개인 구독
+    @Transactional
+    public void subscribePersonal(Long userId, Long personalKeywordId) {
+        Keyword k = keywordRepo.findById(personalKeywordId).orElseThrow();
+        if (k.getScope() != Scope.USER) {
+            throw new sulhoe.aura.handler.ApiException(
+                    org.springframework.http.HttpStatus.BAD_REQUEST,
+                    "USER 키워드만 구독할 수 있습니다.",
+                    "ONLY_USER_ALLOWED",
+                    "personalKeywordId"
+            );
+        }
+
+        User u = userRepo.findById(userId).orElseThrow();
+        u.getSubscribedKeywords().add(k);
+        userRepo.save(u);
+    }
+
+    // 개인 구독 해지
+    @Transactional
+    public void unsubscribePersonal(Long userId, Long personalKeywordId) {
+        User u = userRepo.findById(userId).orElseThrow();
+        u.getSubscribedKeywords().removeIf(k -> Objects.equals(k.getId(), personalKeywordId));
+        userRepo.save(u);
+    }
+
+    // 개인 구독 목록
+    @Transactional(readOnly = true)
+    public List<Long> myPersonalSubscriptionIds(Long userId) {
+        return userRepo.findById(userId).orElseThrow()
+                .getSubscribedKeywords().stream()
+                .filter(k -> k.getScope() == Scope.USER)
+                .map(Keyword::getId)
+                .toList();
     }
 
     /**
@@ -253,8 +290,16 @@ public class KeywordService {
                     .forEach(u -> targets.add(u.getId()));
         }
 
-        // 2-b) 개인 키워드 소유자(제목 포함) - dB에서 바로 매칭
-        keywordRepo.findOwnerIdsMatchedByTitle(title).forEach(targets::add);
+        // 2-c) 개인 키워드 "구독자" (제목 매칭)
+        List<Long> matchedPersonalIds = keywordRepo.findAllByScope(Scope.USER).stream()
+                .filter(k -> containsIgnoreCase(title, k.getPhrase()))
+                .map(Keyword::getId)
+                .toList();
+
+        if (!matchedPersonalIds.isEmpty()) {
+            userRepo.findAllBySubscribedKeywords_IdIn(matchedPersonalIds)
+                    .forEach(u -> targets.add(u.getId()));
+        }
 
         // 3) 사용자 토픽으로 전송
         for (Long uid : targets) {

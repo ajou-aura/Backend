@@ -3,6 +3,7 @@ package sulhoe.aura.service.login;
 import io.jsonwebtoken.JwtException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import sulhoe.aura.config.JwtTokenProvider;
@@ -10,6 +11,7 @@ import sulhoe.aura.dto.notice.NoticeDto;
 import sulhoe.aura.dto.user.UserResponseDto;
 import sulhoe.aura.entity.Notice;
 import sulhoe.aura.entity.User;
+import sulhoe.aura.handler.ApiException;
 import sulhoe.aura.repository.NoticeRepository;
 import sulhoe.aura.repository.UserRepository;
 
@@ -41,7 +43,18 @@ public class UserService {
     @Transactional
     public void addDepartmentByEmail(String email, String dept) {
         User user = findUserByEmail(email);
-        boolean added = user.getDepartments().add(dept);
+        // 공백/대소문자 정규화로 의도치 않은 중복 방지
+        String normalized = dept == null ? null : dept.trim();
+
+        boolean added = user.getDepartments().add(normalized);
+        if (!added) {
+            throw new ApiException(
+                    HttpStatus.CONFLICT,
+                    "이미 등록된 학과입니다.",
+                    "DEPARTMENT_ALREADY_EXISTS",
+                    "dept"
+            );
+        }
         userRepository.save(user);
         log.info("[SVC][DEPTS] 추가: email={}, dept={}, added={}", email, dept, added);
     }

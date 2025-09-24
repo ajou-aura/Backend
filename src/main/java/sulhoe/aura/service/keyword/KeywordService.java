@@ -195,12 +195,25 @@ public class KeywordService {
         keywordRepo.delete(k);
     }
 
+    // 전역 + 개인 키워드 리스트
     @Transactional(readOnly = true)
     public List<Keyword> listAllForUser(Long ownerId) {
         List<Keyword> res = new ArrayList<>();
         res.addAll(keywordRepo.findAllByScope(Scope.GLOBAL));
         res.addAll(keywordRepo.findAllByOwnerId(ownerId));
         return res;
+    }
+
+    // 전역 키워드 리스트
+    @Transactional(readOnly = true)
+    public List<Keyword> listGlobals() {
+        return keywordRepo.findAllByScope(Scope.GLOBAL);
+    }
+
+    // 개인 키워드 리스트
+    @Transactional(readOnly = true)
+    public List<Keyword> listPersonalForUser(Long ownerId) {
+        return keywordRepo.findAllByOwnerId(ownerId);
     }
 
     // 전역 키워드 구독/해지

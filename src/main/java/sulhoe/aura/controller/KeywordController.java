@@ -43,6 +43,19 @@ public class KeywordController {
         return ResponseEntity.ok(ApiResponse.success(keywordService.listAllForUser(uid)));
     }
 
+    // 전역 키워드만
+    @GetMapping("/global")
+    public ResponseEntity<ApiResponse<List<Keyword>>> listGlobals() {
+        return ResponseEntity.ok(ApiResponse.success(keywordService.listGlobals()));
+    }
+
+    // 내 개인 키워드만
+    @GetMapping("/personal")
+    public ResponseEntity<ApiResponse<List<Keyword>>> listPersonal() {
+        Long uid = currentUserId();
+        return ResponseEntity.ok(ApiResponse.success(keywordService.listPersonalForUser(uid)));
+    }
+
     /** 내 개인 키워드 추가 */
     @PostMapping
     public ResponseEntity<ApiResponse<Keyword>> create(@RequestParam String phrase) {

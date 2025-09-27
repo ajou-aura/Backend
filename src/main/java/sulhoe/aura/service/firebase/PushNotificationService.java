@@ -6,15 +6,16 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import sulhoe.aura.dto.notice.NoticeDto;
 
+import java.text.Normalizer;
 import java.time.Duration;
 import java.util.Collection;
 import java.util.List;
+import java.util.Locale;
 
 @Service
 public class PushNotificationService {
     private static final Logger logger = LoggerFactory.getLogger(PushNotificationService.class);
 
-    // 기존: 전체 토픽(notices) 팬아웃
     public void sendPushNotification(List<NoticeDto> newNotices, String type) {
         if (newNotices == null || newNotices.isEmpty()) {
             logger.info("No notices to send");
@@ -25,18 +26,22 @@ public class PushNotificationService {
         }
     }
 
-    /** 사용자별 토픽 (/topics/user-{id}) — 민감하지 않은 개인 알림에 한해 사용 권장 */
+    /** 사용자별 토픽 (/topics/user-{id}) */
     public void sendToUserTopic(Long userId, String type, String title, String link) {
         sendToTopic("user-" + userId, type, title, link);
     }
 
-    /** 다수 디바이스 토큰으로 배치 전송(선택 기능) */
+    /** type 전체 구독 토픽 (/topics/type-{sanitized}) */
+    public void sendToTypeTopic(String type, String title, String link) {
+        sendToTopic("type-" + sanitize(type), type, title, link);
+    }
+
     public void sendToTokens(Collection<String> tokens, String type, String title, String link) {
         if (tokens == null || tokens.isEmpty()) return;
         MulticastMessage msg = MulticastMessage.builder()
-                .putData("type", nullToEmpty(type))
-                .putData("link", nullToEmpty(link))
-                .putData("body", nullToEmpty(title))
+                .putData("type", nz(type))
+                .putData("link", nz(link))
+                .putData("body", nz(title))
                 .addAllTokens(tokens)
                 .setAndroidConfig(androidHighPriority(Duration.ofHours(6)))
                 .build();
@@ -49,16 +54,13 @@ public class PushNotificationService {
         }
     }
 
-    /** 토픽 전송(기본 data-only) + Android 우선순위/TTL 옵션 적용 */
     public void sendToTopic(String topic, String type, String title, String link) {
         try {
             Message message = Message.builder()
                     .setTopic(topic)
-                    // 필요 시 Notification도 함께 넣어 백그라운드 표시 품질 향상
-                    // .setNotification(Notification.builder().setTitle(title).setBody(title).build())
-                    .putData("type", nullToEmpty(type))
-                    .putData("link", nullToEmpty(link))
-                    .putData("body", nullToEmpty(title))
+                    .putData("type", nz(type))
+                    .putData("link", nz(link))
+                    .putData("body", nz(title))
                     .setAndroidConfig(androidHighPriority(Duration.ofHours(6)))
                     .build();
 
@@ -71,10 +73,19 @@ public class PushNotificationService {
 
     private AndroidConfig androidHighPriority(Duration ttl) {
         return AndroidConfig.builder()
-                .setPriority(AndroidConfig.Priority.HIGH)   // 사용자 가시 알림이면 HIGH 권장
-                .setTtl(ttl.toMillis())                     // 시간 민감도에 맞춰 조정
+                .setPriority(AndroidConfig.Priority.HIGH)
+                .setTtl(ttl.toMillis())
                 .build();
     }
 
-    private String nullToEmpty(String s) { return s == null ? "" : s; }
+    private static String nz(String s) { return s == null ? "" : s; }
+
+    private static String sanitize(String t) {
+        if (t == null) return "unknown";
+        String s = Normalizer.normalize(t.trim(), Normalizer.Form.NFKC)
+                .toLowerCase(Locale.ROOT)
+                .replaceAll("\\s+", "-")
+                .replaceAll("[^a-z0-9-_.~%]", "-");
+        return s.replaceAll("-{2,}", "-");
+    }
 }

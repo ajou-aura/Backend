@@ -4,3 +4,5 @@ app:
     retag-on-start: true
   auth:
     allowed-domains: ajou.ac.kr
+  admin:
+    emails: "origami0352@ajou.ac.kr"

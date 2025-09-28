@@ -128,16 +128,19 @@ public class GoogleOAuthService {
                     "OAUTH_USERINFO_PARSE_FAILED",
                     null);
         }
-        String name = userNode.get("name").asText();
+        String name = userNode.path("name").asText();
         String email = userNode.path("email").asText();
-        if (email == null || email.isBlank()) {
-            throw new ApiException(HttpStatus.BAD_GATEWAY,
+        if (email.isBlank()) {
+            throw new ApiException(
+                    HttpStatus.BAD_GATEWAY,
                     "구글 계정 이메일을 가져오지 못했습니다.",
                     "OAUTH_EMAIL_MISSING",
-                    "email");
+                    "email"
+            );
         }
         if (!isAllowedDomain(email)) {
-            throw new ApiException(HttpStatus.FORBIDDEN,
+            throw new ApiException(
+                    HttpStatus.FORBIDDEN,
                     "아주대(@ajou.ac.kr) 계정만 로그인할 수 있습니다.",
                     "OAUTH_FORBIDDEN_DOMAIN",
                     "email");

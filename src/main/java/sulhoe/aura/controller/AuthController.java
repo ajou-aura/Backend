@@ -15,6 +15,7 @@ import sulhoe.aura.handler.ApiException;
 import sulhoe.aura.service.login.AuthService;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import org.springframework.security.web.csrf.CsrfToken;
 import sulhoe.aura.service.login.SsoTicketService;
@@ -132,7 +133,9 @@ public class AuthController {
 
             String target = UriComponentsBuilder.fromUriString(frontendUrl)
                     .queryParam("signUp", dto.signUp())
-                    .build(true).toUriString();
+                    .build()
+                    .encode(StandardCharsets.UTF_8)
+                    .toUriString();
             res.sendRedirect(target);
             log.info("[CTRL] Redirecting back to frontend with tokens: {}", target);
 
@@ -152,6 +155,29 @@ public class AuthController {
                     .queryParam("status", e.getStatus().value())
                     .queryParam("code", e.getErrorCode())
                     .queryParam("message", e.getMessage())
+                    .build()
+                    .encode(StandardCharsets.UTF_8)
+                    .toUriString();
+
+            res.sendRedirect(target);
+        } catch (Exception e) {
+            log.error("[CALLBACK] unexpected error", e);
+            if ("app".equalsIgnoreCase(state)) {
+                String deeplink = UriComponentsBuilder.fromUriString("aura://oauth-callback")
+                        .queryParam("error", "INTERNAL_SERVER_ERROR")
+                        .queryParam("status", 500)
+                        .queryParam("message", "서버 내부 오류가 발생했습니다.")
+                        .build()
+                        .encode(StandardCharsets.UTF_8)
+                        .toUriString();
+                res.sendRedirect(deeplink);
+                return;
+            }
+            String target = UriComponentsBuilder.fromUriString(frontendUrl)
+                    .path("/auth/error")
+                    .queryParam("status", 500)
+                    .queryParam("code", "INTERNAL_SERVER_ERROR")
+                    .queryParam("message", "서버 내부 오류가 발생했습니다.")
                     .build(true).toUriString();
             res.sendRedirect(target);
         }

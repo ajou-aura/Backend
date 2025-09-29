@@ -28,12 +28,23 @@ public class KeywordController {
     private Long currentUserId() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth == null || !auth.isAuthenticated()) {
-            throw new IllegalStateException("인증이 필요합니다.");
+            throw new sulhoe.aura.handler.ApiException(
+                    org.springframework.http.HttpStatus.UNAUTHORIZED,
+                    "인증이 필요합니다.",
+                    "UNAUTHORIZED",
+                    null
+            );
         }
         @SuppressWarnings("unchecked")
         Map<String, String> p = (Map<String, String>) auth.getPrincipal();
         String email = p.get("email");
-        return userRepo.findByEmail(email).orElseThrow().getId();
+        return userRepo.findByEmail(email).orElseThrow(() ->
+                new sulhoe.aura.handler.ApiException(
+                        org.springframework.http.HttpStatus.NOT_FOUND,
+                        "대상을 찾을 수 없습니다.",
+                        "USER_NOT_FOUND",
+                        "email"
+                )).getId();
     }
 
     // 전체 키워드 목록 (전역 + 내 개인)

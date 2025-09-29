@@ -5,12 +5,14 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import sulhoe.aura.entity.Keyword;
 import sulhoe.aura.entity.Keyword.Scope;
 import sulhoe.aura.entity.Notice;
 import sulhoe.aura.entity.User;
+import sulhoe.aura.handler.ApiException;
 import sulhoe.aura.repository.KeywordRepository;
 import sulhoe.aura.repository.NoticeRepository;
 import sulhoe.aura.repository.UserRepository;
@@ -82,7 +84,13 @@ public class KeywordService {
     // 기존 ID 버전은 리태깅 배치용으로 유지
     @Transactional
     public void tagNoticeWithGlobalKeywords(UUID noticeId, List<Keyword> globals) {
-        Notice managed = noticeRepo.findById(noticeId).orElseThrow();
+        Notice managed = noticeRepo.findById(noticeId).orElseThrow(()->
+                new ApiException(
+                        HttpStatus.NOT_FOUND,
+                        "대상을 찾을 수 없습니다.",
+                        "NOT_FOUND",
+                        "noticeId"
+                ));
         tagNoticeWithGlobalKeywords(managed, globals);
     }
 
@@ -113,8 +121,8 @@ public class KeywordService {
     public Keyword addMyKeyword(Long ownerId, String phrase) {
         final String norm = normalizeForCompare(phrase);
         if (norm.isEmpty()) {
-            throw new sulhoe.aura.handler.ApiException(
-                    org.springframework.http.HttpStatus.BAD_REQUEST,
+            throw new ApiException(
+                    HttpStatus.BAD_REQUEST,
                     "요청 형식이 올바르지 않습니다.",
                     "VALIDATION_ERROR",
                     "phrase"
@@ -133,8 +141,8 @@ public class KeywordService {
 
         if (conflictsWithGlobal) {
             // 409 CONFLICT: 전역 키워드와 동일(정규화 기준)
-            throw new sulhoe.aura.handler.ApiException(
-                    org.springframework.http.HttpStatus.CONFLICT,
+            throw new ApiException(
+                    HttpStatus.CONFLICT,
                     "기본 키워드와 중복될 수 없습니다.",
                     "CONFLICT_WITH_GLOBAL",
                     "phrase"
@@ -147,8 +155,8 @@ public class KeywordService {
                 .findFirst();
 
         if (dup.isPresent()) {
-            throw new sulhoe.aura.handler.ApiException(
-                    org.springframework.http.HttpStatus.CONFLICT,
+            throw new ApiException(
+                    HttpStatus.CONFLICT,
                     "이미 추가된 키워드입니다.",
                     "DUPLICATE_PERSONAL",
                     "phrase"
@@ -166,8 +174,8 @@ public class KeywordService {
     @Transactional
     public void deleteMyKeyword(Long ownerId, Long keywordId) {
         Keyword k = keywordRepo.findById(keywordId).orElseThrow(() ->
-                new sulhoe.aura.handler.ApiException(
-                        org.springframework.http.HttpStatus.NOT_FOUND,
+                new ApiException(
+                        HttpStatus.NOT_FOUND,
                         "대상을 찾을 수 없습니다.",
                         "NOT_FOUND",
                         "id"
@@ -175,8 +183,8 @@ public class KeywordService {
         );
         // 1) GLOBAL 삭제 시도 → 409
         if (k.getScope() == Scope.GLOBAL) {
-            throw new sulhoe.aura.handler.ApiException(
-                    org.springframework.http.HttpStatus.CONFLICT,
+            throw new ApiException(
+                    HttpStatus.CONFLICT,
                     "기본 키워드는 삭제할 수 없습니다.",
                     "GLOBAL_KEYWORD_DELETE_NOT_ALLOWED",
                     "id"
@@ -184,8 +192,8 @@ public class KeywordService {
         }
         // 2) 내 소유가 아니면 존재를 숨기고 404
         if (!Objects.equals(k.getOwnerId(), ownerId)) {
-            throw new sulhoe.aura.handler.ApiException(
-                    org.springframework.http.HttpStatus.NOT_FOUND,
+            throw new ApiException(
+                    HttpStatus.NOT_FOUND,
                     "대상을 찾을 수 없습니다.",
                     "NOT_FOUND",
                     "id"
@@ -219,9 +227,28 @@ public class KeywordService {
     // 전역 키워드 구독/해지
     @Transactional
     public void subscribeGlobal(Long ownerId, Long globalKeywordId) {
-        Keyword g = keywordRepo.findById(globalKeywordId).orElseThrow();
-        if (g.getScope() != Scope.GLOBAL) throw new IllegalArgumentException("Only GLOBAL keyword can be subscribed.");
-        User u = userRepo.findById(ownerId).orElseThrow();
+        Keyword g = keywordRepo.findById(globalKeywordId).orElseThrow(() ->
+                new ApiException(
+                        HttpStatus.NOT_FOUND,
+                        "대상을 찾을 수 없습니다.",
+                        "NOT_FOUND",
+                        "globalKeywordId"
+                ));
+        if (g.getScope() != Scope.GLOBAL) {
+            throw new ApiException(
+                    HttpStatus.BAD_REQUEST,
+                    "GLOBAL 키워드만 구독할 수 있습니다.",
+                    "ONLY_GLOBAL_ALLOWED",
+                    "globalKeywordId"
+            );
+        }
+        User u = userRepo.findById(ownerId).orElseThrow(() ->
+                new ApiException(
+                        HttpStatus.NOT_FOUND,
+                        "대상을 찾을 수 없습니다.",
+                        "NOT_FOUND",
+                        "ownerId"
+                ));
         u.getSubscribedKeywords().add(g);
         userRepo.save(u);
     }
@@ -229,7 +256,13 @@ public class KeywordService {
     // 전역 구독 해지
     @Transactional
     public void unsubscribeGlobal(Long ownerId, Long globalKeywordId) {
-        User u = userRepo.findById(ownerId).orElseThrow();
+        User u = userRepo.findById(ownerId).orElseThrow(() ->
+                new ApiException(
+                        HttpStatus.NOT_FOUND,
+                        "대상을 찾을 수 없습니다.",
+                        "NOT_FOUND",
+                        "ownerId"
+                ));
         u.getSubscribedKeywords().removeIf(k -> Objects.equals(k.getId(), globalKeywordId));
         userRepo.save(u);
     }
@@ -237,24 +270,40 @@ public class KeywordService {
     // 전역 구독 목록
     @Transactional(readOnly = true)
     public List<Long> myGlobalSubscriptionIds(Long ownerId) {
-        return userRepo.findById(ownerId).orElseThrow()
+        return userRepo.findById(ownerId).orElseThrow(() ->
+                        new ApiException(
+                                HttpStatus.NOT_FOUND,
+                                "대상을 찾을 수 없습니다.",
+                                "NOT_FOUND",
+                                "ownerId"
+                        ))
                 .getSubscribedKeywords().stream().map(Keyword::getId).toList();
     }
 
     // 개인 구독
     @Transactional
     public void subscribePersonal(Long userId, Long personalKeywordId) {
-        Keyword k = keywordRepo.findById(personalKeywordId).orElseThrow();
+        Keyword k = keywordRepo.findById(personalKeywordId).orElseThrow(() ->
+                new ApiException(
+                        HttpStatus.NOT_FOUND,
+                        "대상을 찾을 수 없습니다.",
+                        "NOT_FOUND",
+                        "personalKeywordId"));
         if (k.getScope() != Scope.USER) {
-            throw new sulhoe.aura.handler.ApiException(
-                    org.springframework.http.HttpStatus.BAD_REQUEST,
+            throw new ApiException(
+                    HttpStatus.BAD_REQUEST,
                     "USER 키워드만 구독할 수 있습니다.",
                     "ONLY_USER_ALLOWED",
                     "personalKeywordId"
             );
         }
 
-        User u = userRepo.findById(userId).orElseThrow();
+        User u = userRepo.findById(userId).orElseThrow(() ->
+                new ApiException(
+                        HttpStatus.NOT_FOUND,
+                        "대상을 찾을 수 없습니다.",
+                        "NOT_FOUND",
+                        "userId"));
         u.getSubscribedKeywords().add(k);
         userRepo.save(u);
     }
@@ -262,7 +311,12 @@ public class KeywordService {
     // 개인 구독 해지
     @Transactional
     public void unsubscribePersonal(Long userId, Long personalKeywordId) {
-        User u = userRepo.findById(userId).orElseThrow();
+        User u = userRepo.findById(userId).orElseThrow(() ->
+                new ApiException(
+                        HttpStatus.NOT_FOUND,
+                        "대상을 찾을 수 없습니다.",
+                        "NOT_FOUND",
+                        "userId"));
         u.getSubscribedKeywords().removeIf(k -> Objects.equals(k.getId(), personalKeywordId));
         userRepo.save(u);
     }
@@ -270,7 +324,13 @@ public class KeywordService {
     // 개인 구독 목록
     @Transactional(readOnly = true)
     public List<Long> myPersonalSubscriptionIds(Long userId) {
-        return userRepo.findById(userId).orElseThrow()
+        return userRepo.findById(userId).orElseThrow(()->
+                new ApiException(
+                        HttpStatus.NOT_FOUND,
+                        "대상을 찾을 수 없습니다.",
+                        "NOT_FOUND",
+                        "userId"
+                ))
                 .getSubscribedKeywords().stream()
                 .filter(k -> k.getScope() == Scope.USER)
                 .map(Keyword::getId)
@@ -285,7 +345,12 @@ public class KeywordService {
     @Transactional
     public void onNoticeSaved(Notice detachedNotice, String type) {
         Notice n = noticeRepo.findByIdWithKeywords(detachedNotice.getId())
-                .orElseThrow(() -> new IllegalStateException("Notice not found: " + detachedNotice.getId()));
+                .orElseThrow(() -> new ApiException(
+                        HttpStatus.NOT_FOUND,
+                        "대상을 찾을 수 없습니다.",
+                        "NOT_FOUND",
+                        "noticeId"
+                ));
 
         // 1) 전역 키워드 태깅
         final List<Keyword> globals = keywordRepo.findAllByScope(Scope.GLOBAL);

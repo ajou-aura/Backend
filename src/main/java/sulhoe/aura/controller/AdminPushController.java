@@ -46,7 +46,7 @@ public class AdminPushController {
 
     private void ensureAdmin() {
         String email = currentEmail();
-        Set<String> allow = Arrays.stream(new String[]{Optional.ofNullable(adminEmails).orElse("")})
+        Set<String> allow = Arrays.stream(Optional.ofNullable(adminEmails).orElse("").split(","))
                 .map(String::trim)
                 .filter(s -> !s.isBlank())
                 .collect(Collectors.toSet());
@@ -56,7 +56,7 @@ public class AdminPushController {
         }
     }
 
-    /* ===== 요청 DTO ===== */
+    // title 필드는 "공지 제목"으로 해석됩니다. (서버가 최종 title/body 포맷을 강제 적용)
     public record TopicReq(String topic, String type, String title, String link) {}
     public record UsersReq(List<Long> userIds, String type, String title, String link) {}
     public record KeywordsReq(List<Long> keywordIds, String type, String title, String link) {}

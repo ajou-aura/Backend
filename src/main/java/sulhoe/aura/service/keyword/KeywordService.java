@@ -8,7 +8,7 @@ import org.springframework.context.event.EventListener;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import sulhoe.aura.entity.Keyword;
+import sulhoe.aura.entity.*;
 import sulhoe.aura.entity.Keyword.Scope;
 import sulhoe.aura.entity.Notice;
 import sulhoe.aura.entity.User;
@@ -16,6 +16,7 @@ import sulhoe.aura.handler.ApiException;
 import sulhoe.aura.repository.KeywordRepository;
 import sulhoe.aura.repository.NoticeRepository;
 import sulhoe.aura.repository.UserRepository;
+import sulhoe.aura.repository.*;
 import sulhoe.aura.service.firebase.PushNotificationService;
 
 import java.util.*;
@@ -30,6 +31,10 @@ public class KeywordService {
     private final NoticeRepository noticeRepo;
     private final UserRepository userRepo;
     private final PushNotificationService push;
+
+    // type 기반
+    private final UserTypePreferenceRepository utpRepo;
+    private final UserTypeKeywordRepository utikRepo;
 
     /* ===== 초기 시드 ===== */
     @Value("${app.keywords.seed:}") // 예: 공모전,장학,채용
@@ -114,6 +119,20 @@ public class KeywordService {
         String h = normalizeForCompare(haystack);
         String n = normalizeForCompare(needle);
         return !n.isEmpty() && h.contains(n);
+    }
+
+    private static String normalizeForCompare(String s) {
+        if (s == null) return "";
+        // 1) 트림
+        String t = s.trim();
+        // 2) 유니코드 정규화(NFKC: 전각/반각, 합성문자 등 통합)
+        t = java.text.Normalizer.normalize(t, java.text.Normalizer.Form.NFKC);
+        // 3) 소문자(루트 로케일)
+        t = t.toLowerCase(java.util.Locale.ROOT);
+        // 4) 연속 공백 축약
+        t = t.replaceAll("\\s+", " ");
+        // 5) 최종 트림
+        return t.trim();
     }
 
     /* ===== 개인 키워드 CRUD ===== */
@@ -224,123 +243,70 @@ public class KeywordService {
         return keywordRepo.findAllByOwnerId(ownerId);
     }
 
-    // 전역 키워드 구독/해지
+    /* ====== type 기반 구독/키워드 연결 ====== */
+  
     @Transactional
-    public void subscribeGlobal(Long ownerId, Long globalKeywordId) {
-        Keyword g = keywordRepo.findById(globalKeywordId).orElseThrow(() ->
-                new ApiException(
-                        HttpStatus.NOT_FOUND,
-                        "대상을 찾을 수 없습니다.",
-                        "NOT_FOUND",
-                        "globalKeywordId"
-                ));
-        if (g.getScope() != Scope.GLOBAL) {
-            throw new ApiException(
-                    HttpStatus.BAD_REQUEST,
-                    "GLOBAL 키워드만 구독할 수 있습니다.",
-                    "ONLY_GLOBAL_ALLOWED",
-                    "globalKeywordId"
+    public void setTypeMode(Long userId, String type, UserTypePreference.Mode mode) {
+        User u = userRepo.findById(userId).orElseThrow();
+        UserTypePreference pref = utpRepo.findByUserIdAndType(userId, type)
+                .orElse(UserTypePreference.builder().user(u).type(type).build());
+        pref.setMode(mode);
+        utpRepo.save(pref);
+    }
+
+    /**
+     * 유저가 특정 type에 '키워드(전역 또는 개인)'를 구독으로 연결
+     * - GLOBAL: 누구나 연결 가능
+     * - USER  : 해당 키워드의 ownerId == userId 인 경우에만 연결 가능
+     */
+    @Transactional
+    public Long addUserTypeKeyword(Long userId, String type, Long keywordId) {
+        Keyword k = keywordRepo.findById(keywordId).orElseThrow();
+        if (k.getScope() == Scope.USER && !Objects.equals(k.getOwnerId(), userId)) {
+            throw new sulhoe.aura.handler.ApiException(
+                    org.springframework.http.HttpStatus.BAD_REQUEST,
+                    "본인 소유의 USER 키워드만 연결할 수 있습니다.",
+                    "ONLY_OWN_USER_KEYWORD",
+                    "keywordId"
             );
         }
-        User u = userRepo.findById(ownerId).orElseThrow(() ->
-                new ApiException(
-                        HttpStatus.NOT_FOUND,
-                        "대상을 찾을 수 없습니다.",
-                        "NOT_FOUND",
-                        "ownerId"
-                ));
-        u.getSubscribedKeywords().add(g);
-        userRepo.save(u);
-    }
-
-    // 전역 구독 해지
-    @Transactional
-    public void unsubscribeGlobal(Long ownerId, Long globalKeywordId) {
-        User u = userRepo.findById(ownerId).orElseThrow(() ->
-                new ApiException(
-                        HttpStatus.NOT_FOUND,
-                        "대상을 찾을 수 없습니다.",
-                        "NOT_FOUND",
-                        "ownerId"
-                ));
-        u.getSubscribedKeywords().removeIf(k -> Objects.equals(k.getId(), globalKeywordId));
-        userRepo.save(u);
-    }
-
-    // 전역 구독 목록
-    @Transactional(readOnly = true)
-    public List<Long> myGlobalSubscriptionIds(Long ownerId) {
-        return userRepo.findById(ownerId).orElseThrow(() ->
-                        new ApiException(
-                                HttpStatus.NOT_FOUND,
-                                "대상을 찾을 수 없습니다.",
-                                "NOT_FOUND",
-                                "ownerId"
-                        ))
-                .getSubscribedKeywords().stream().map(Keyword::getId).toList();
-    }
-
-    // 개인 구독
-    @Transactional
-    public void subscribePersonal(Long userId, Long personalKeywordId) {
-        Keyword k = keywordRepo.findById(personalKeywordId).orElseThrow(() ->
-                new ApiException(
-                        HttpStatus.NOT_FOUND,
-                        "대상을 찾을 수 없습니다.",
-                        "NOT_FOUND",
-                        "personalKeywordId"));
-        if (k.getScope() != Scope.USER) {
-            throw new ApiException(
-                    HttpStatus.BAD_REQUEST,
-                    "USER 키워드만 구독할 수 있습니다.",
-                    "ONLY_USER_ALLOWED",
-                    "personalKeywordId"
-            );
+        if (!utikRepo.existsByUser_IdAndTypeAndKeyword_Id(userId, type, keywordId)) {
+            User u = userRepo.findById(userId).orElseThrow();
+            utikRepo.save(UserTypeKeyword.builder().user(u).type(type).keyword(k).build());
         }
-
-        User u = userRepo.findById(userId).orElseThrow(() ->
-                new ApiException(
-                        HttpStatus.NOT_FOUND,
-                        "대상을 찾을 수 없습니다.",
-                        "NOT_FOUND",
-                        "userId"));
-        u.getSubscribedKeywords().add(k);
-        userRepo.save(u);
+        return keywordId;
     }
 
-    // 개인 구독 해지
     @Transactional
-    public void unsubscribePersonal(Long userId, Long personalKeywordId) {
-        User u = userRepo.findById(userId).orElseThrow(() ->
-                new ApiException(
-                        HttpStatus.NOT_FOUND,
-                        "대상을 찾을 수 없습니다.",
-                        "NOT_FOUND",
-                        "userId"));
-        u.getSubscribedKeywords().removeIf(k -> Objects.equals(k.getId(), personalKeywordId));
-        userRepo.save(u);
+    public void removeUserTypeKeyword(Long userId, String type, Long keywordId) {
+        utikRepo.findAllByUserAndType(userId, type).stream()
+                .filter(utik -> utik.getKeyword().getId().equals(keywordId))
+                .findFirst()
+                .ifPresent(utikRepo::delete);
     }
 
-    // 개인 구독 목록
+    // 현재 모드 조회
     @Transactional(readOnly = true)
-    public List<Long> myPersonalSubscriptionIds(Long userId) {
-        return userRepo.findById(userId).orElseThrow(()->
-                new ApiException(
-                        HttpStatus.NOT_FOUND,
-                        "대상을 찾을 수 없습니다.",
-                        "NOT_FOUND",
-                        "userId"
-                ))
-                .getSubscribedKeywords().stream()
-                .filter(k -> k.getScope() == Scope.USER)
-                .map(Keyword::getId)
+    public UserTypePreference.Mode getTypeMode(Long userId, String type) {
+        return utpRepo.findByUserIdAndType(userId, type)
+                .map(UserTypePreference::getMode)
+                .orElse(null); // 아직 설정 안 했을 수 있음
+    }
+
+    // 해당 type에서 내가 구독한 키워드 ID 조회
+    @Transactional(readOnly = true)
+    public List<Long> listUserTypeKeywordIds(Long userId, String type) {
+        return utikRepo.findAllByUserAndType(userId, type)
+                .stream()
+                .map(utik -> utik.getKeyword().getId())
                 .toList();
     }
 
     /**
-     * 저장 직후 호출: 태깅 + FCM 대상 계산 + 전송
-     * @param detachedNotice    저장(신규/업데이트)된 Notice
-     * @param type 기존 크롤러가 쓰던 라우팅용 타입
+     * 저장 직후 호출: (1) 전역 태깅, (2) type 모드별 FCM
+     *  - ALL 모드: type 토픽 1회 발송
+     *  - KEYWORD 모드: 해당 type에서 '유저가 구독한 여러 키워드(전역/개인)' 중
+     *                  어느 하나라도 제목에 매칭되면(OR) 개별 전송
      */
     @Transactional
     public void onNoticeSaved(Notice detachedNotice, String type) {
@@ -352,51 +318,36 @@ public class KeywordService {
                         "noticeId"
                 ));
 
-        // 1) 전역 키워드 태깅
+        // 1) 전역 키워드 태깅(검색 캐시 유지)
         final List<Keyword> globals = keywordRepo.findAllByScope(Scope.GLOBAL);
         tagNoticeWithGlobalKeywords(n.getId(), globals);
 
-        // 2) FCM 대상 계산
-        String title = Optional.ofNullable(n.getTitle()).orElse("");
-        String link  = n.getLink();
+        final String title = Optional.ofNullable(n.getTitle()).orElse("");
+        final String link  = n.getLink();
+
+        // 2) ALL 모드 사용자 존재 시: type 토픽 1회 발송
+        List<Long> allModeUserIds = utpRepo.findAllUserIdsByTypeAndAll(type);
+        if (!allModeUserIds.isEmpty()) {
+            push.sendToTypeTopic(type, title, link);
+        }
+
+        // 3) KEYWORD 모드 + 키워드 OR 매칭 사용자
+        List<Long> keywordModeUserIds = utpRepo.findAllUserIdsByTypeAndKeyword(type);
+        if (keywordModeUserIds.isEmpty()) return;
+
+        // user_type_keywords 의 (user,type,keyword) 중 keyword.phrase 가 제목에 매칭되는 사용자들 (OR)
+        List<Long> matchedByTitle = utikRepo.findUserIdsByTypeAndTitleMatch(type, title);
+
         Set<Long> targets = new LinkedHashSet<>();
-
-        // 2-a) 전역 키워드 구독자
-        List<Long> matchedGlobalIds = n.getKeywords().stream().map(Keyword::getId).toList();
-        if (!matchedGlobalIds.isEmpty()) {
-            userRepo.findAllBySubscribedKeywords_IdIn(matchedGlobalIds)
-                    .forEach(u -> targets.add(u.getId()));
+        for (Long uid : matchedByTitle) {
+            if (keywordModeUserIds.contains(uid)) targets.add(uid);
         }
 
-        // 2-c) 개인 키워드 "구독자" (제목 매칭)
-        List<Long> matchedPersonalIds = keywordRepo.findAllByScope(Scope.USER).stream()
-                .filter(k -> containsIgnoreCase(title, k.getPhrase()))
-                .map(Keyword::getId)
-                .toList();
-
-        if (!matchedPersonalIds.isEmpty()) {
-            userRepo.findAllBySubscribedKeywords_IdIn(matchedPersonalIds)
-                    .forEach(u -> targets.add(u.getId()));
-        }
-
-        // 3) 사용자 토픽으로 전송
         for (Long uid : targets) {
             push.sendToUserTopic(uid, type, title, link);
         }
-    }
 
-    /* ===== 유틸 ===== */
-    private static String normalizeForCompare(String s) {
-        if (s == null) return "";
-        // 1) 트림
-        String t = s.trim();
-        // 2) 유니코드 정규화(NFKC: 전각/반각, 합성문자 등 통합)
-        t = java.text.Normalizer.normalize(t, java.text.Normalizer.Form.NFKC);
-        // 3) 소문자(루트 로케일)
-        t = t.toLowerCase(java.util.Locale.ROOT);
-        // 4) 연속 공백 축약
-        t = t.replaceAll("\\s+", " ");
-        // 5) 최종 트림
-        return t.trim();
+        log.debug("[onNoticeSaved] type={}, ALL={} users, KEYWORD={} users, matchedTargets={}",
+                type, allModeUserIds.size(), keywordModeUserIds.size(), targets.size());
     }
 }

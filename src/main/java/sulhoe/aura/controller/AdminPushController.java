@@ -1,3 +1,4 @@
+// src/main/java/sulhoe/aura/controller/AdminPushController.java
 package sulhoe.aura.controller;
 
 import lombok.RequiredArgsConstructor;
@@ -12,20 +13,12 @@ import sulhoe.aura.entity.Keyword;
 import sulhoe.aura.entity.User;
 import sulhoe.aura.repository.KeywordRepository;
 import sulhoe.aura.repository.UserRepository;
+import sulhoe.aura.repository.UserTypeKeywordRepository;
 import sulhoe.aura.service.firebase.PushNotificationService;
 
 import java.util.*;
 import java.util.stream.Collectors;
 
-/**
- * 관리자 수동 발송용 API
- * - 토픽 발송
- * - 특정 사용자들 발송
- * - 전역 키워드 구독자들에게 발송
- *
- * 운영 권한은 app.admin.emails 로 간단히 화이트리스트 체크합니다.
- * (프로젝트에 ROLE 기반 권한이 있으면 @PreAuthorize 로 교체해도 됩니다)
- */
 @Slf4j
 @RestController
 @RequestMapping("/admin/push")
@@ -35,6 +28,7 @@ public class AdminPushController {
     private final PushNotificationService push;
     private final UserRepository userRepo;
     private final KeywordRepository keywordRepo;
+    private final UserTypeKeywordRepository utikRepo; // ✅ 추가
 
     @Value("${app.admin.emails:}") // 쉼표 구분
     private String adminEmails;
@@ -52,8 +46,7 @@ public class AdminPushController {
 
     private void ensureAdmin() {
         String email = currentEmail();
-        Set<String> allow = Arrays.stream(Optional.ofNullable(adminEmails).orElse("")
-                        .split(","))
+        Set<String> allow = Arrays.stream(new String[]{Optional.ofNullable(adminEmails).orElse("")})
                 .map(String::trim)
                 .filter(s -> !s.isBlank())
                 .collect(Collectors.toSet());
@@ -93,26 +86,32 @@ public class AdminPushController {
                 sent++;
             }
         }
-        return ResponseEntity.ok(ApiResponse.success(Map.of("requested", req.userIds().size(), "sent", sent)));
+        return ResponseEntity.ok(ApiResponse.success(Map.of(
+                "requested", req.userIds().size(),
+                "sent", sent
+        )));
     }
 
-    /* ===== 3) 전역 키워드 구독자들에게 발송 ===== */
+    /* ===== 3) (수정) type 내 특정 키워드 구독자들에게 발송 =====
+       - 기존: User.subscribedKeywords 기반 → 삭제됨
+       - 변경: user_type_keywords 에서 (type, keywordIds) 매칭 사용자 조회
+     */
     @PostMapping("/keywords")
     public ResponseEntity<ApiResponse<Map<String, Object>>> sendToKeywordSubscribers(@RequestBody KeywordsReq req) {
         ensureAdmin();
         if (req.keywordIds() == null || req.keywordIds().isEmpty()) {
             return ResponseEntity.badRequest().body(ApiResponse.error(400, "keywordIds가 비어있습니다.", null));
         }
-        // 전역 키워드만 허용
-        List<Keyword> globals = keywordRepo.findAllById(req.keywordIds()).stream()
-                .filter(k -> k.getScope() == Keyword.Scope.GLOBAL)
-                .toList();
+        if (req.type() == null || req.type().isBlank()) {
+            return ResponseEntity.badRequest().body(ApiResponse.error(400, "type이 비어있습니다.", null));
+        }
 
-        // 구독자 찾기 (User.subscribedKeywords 와 JPA가 만든 조인테이블 기반)
-        Set<Long> targets = userRepo.findAll().stream()
-                .filter(u -> u.getSubscribedKeywords().stream().anyMatch(globals::contains))
-                .map(User::getId)
-                .collect(Collectors.toCollection(LinkedHashSet::new));
+        // 존재하는 키워드만 집계 (정보용)
+        List<Keyword> keywords = keywordRepo.findAllById(req.keywordIds());
+
+        // 🔎 해당 type에 '이 키워드들'을 구독한 사용자 찾기 (중복 제거)
+        List<Long> uidList = utikRepo.findUserIdsByTypeAndKeywordIds(req.type(), req.keywordIds());
+        Set<Long> targets = new LinkedHashSet<>(uidList);
 
         int sent = 0;
         for (Long uid : targets) {
@@ -120,7 +119,8 @@ public class AdminPushController {
             sent++;
         }
         return ResponseEntity.ok(ApiResponse.success(Map.of(
-                "keywords", globals.stream().map(Keyword::getId).toList(),
+                "type", req.type(),
+                "keywords", keywords.stream().map(Keyword::getId).toList(),
                 "targets", targets.size(),
                 "sent", sent
         )));

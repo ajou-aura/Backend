@@ -75,6 +75,7 @@ public class SecurityConfig {
                         .requestMatchers(
                                 "/api/auth/**",
                                 "/api/notices/**",
+                                "/api/subscriptions/**",
                                 "/favicon.ico", "/", "/index.html", "/assets/**", "/static/**", "/health"
                         ).permitAll()
 

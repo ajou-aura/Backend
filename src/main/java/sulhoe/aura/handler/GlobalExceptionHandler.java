@@ -45,7 +45,9 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(sulhoe.aura.handler.ApiException.class)
     public ResponseEntity<ApiResponse<Object>> handleApiException(sulhoe.aura.handler.ApiException ex) {
-        return ResponseEntity.status(ex.getStatus()).body(
+        return ResponseEntity.status(ex.getStatus())
+                .headers(ex.getHeaders())
+                        .body(
                 ApiResponse.error(
                         ex.getStatus().value(),
                         ex.getMessage(),
@@ -72,4 +74,21 @@ public class GlobalExceptionHandler {
         );
     }
 
+    @ExceptionHandler(org.springframework.security.core.AuthenticationException.class)
+    public ResponseEntity<ApiResponse<Object>> handleAuth(org.springframework.security.core.AuthenticationException ex) {
+        return ResponseEntity.status(401).body(
+                ApiResponse.error(401, "인증이 필요합니다.", Map.of(
+                        "errors", List.of(Map.of("code","UNAUTHORIZED","message","로그인이 필요합니다."))
+                ))
+        );
+    }
+
+    @ExceptionHandler(org.springframework.security.access.AccessDeniedException.class)
+    public ResponseEntity<ApiResponse<Object>> handleDenied(org.springframework.security.access.AccessDeniedException ex) {
+        return ResponseEntity.status(403).body(
+                ApiResponse.error(403, "접근이 거부되었습니다.", Map.of(
+                        "errors", List.of(Map.of("code","FORBIDDEN","message","권한이 없습니다."))
+                ))
+        );
+    }
 }

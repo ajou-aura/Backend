@@ -11,9 +11,11 @@ import org.springframework.web.util.UriComponentsBuilder;
 import sulhoe.aura.config.JwtTokenProvider;
 import sulhoe.aura.dto.ApiResponse;
 import sulhoe.aura.dto.login.LoginResponseDto;
+import sulhoe.aura.handler.ApiException;
 import sulhoe.aura.service.login.AuthService;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import org.springframework.security.web.csrf.CsrfToken;
 import sulhoe.aura.service.login.SsoTicketService;
@@ -97,38 +99,88 @@ public class AuthController {
     // 콜백 처리 후 프론트로 리디렉트
     // 쿠키 두 개(REFRESH + WEB_SESSION)만 심고 프론트로 이동
     @GetMapping("/callback")
-    @ResponseStatus(HttpStatus.SEE_OTHER)
-    public void callback(@RequestParam String code,
+    public void callback(@RequestParam(required = false) String code,
                          @RequestParam(required = false, defaultValue = "web") String state,
+                         @RequestParam(required = false, name = "error") String oauthError,
+                         @RequestParam(required = false, name = "error_description") String oauthErrorDesc,
                          HttpServletResponse res) throws IOException {
+        try {
+            if (code == null) {
+                // 구글이 error만 보내고 code가 없을 때
+                throw new ApiException(
+                        org.springframework.http.HttpStatus.BAD_REQUEST,
+                        (oauthErrorDesc != null && !oauthErrorDesc.isBlank()) ? oauthErrorDesc : "유효하지 않은 인가 코드입니다.",
+                        "OAUTH_CALLBACK_ERROR",
+                        "code"
+                );
+            }
 
-        LoginResponseDto dto = authService.loginWithGoogle(code);
+            LoginResponseDto dto = authService.loginWithGoogle(code);
 
-        if ("app".equalsIgnoreCase(state)) {
-            String email = jwt.getEmail(dto.accessToken());
-            String name  = jwt.getName(dto.accessToken());
-            String ticket = ssoTicketService.issue(email, name, dto.signUp());
+            if ("app".equalsIgnoreCase(state)) {
+                String email = jwt.getEmail(dto.accessToken());
+                String name  = jwt.getName(dto.accessToken());
+                String ticket = ssoTicketService.issue(email, name, dto.signUp());
+                String target = UriComponentsBuilder.fromUriString("aura://oauth-callback")
+                        .queryParam("code", ticket)
+                        .build(true).toUriString();
+                res.sendRedirect(target);
+                return;
+            }
 
-            String target = UriComponentsBuilder.fromUriString("aura://oauth-callback")
-                    .queryParam("code", ticket)
+            res.addHeader(HttpHeaders.SET_COOKIE, refreshCookie(dto.refreshToken()).toString());
+            res.addHeader(HttpHeaders.SET_COOKIE, webSessionCookie(dto.accessToken()).toString());
+
+            String target = UriComponentsBuilder.fromUriString(frontendUrl)
+                    .queryParam("signUp", dto.signUp())
+                    .build()
+                    .encode(StandardCharsets.UTF_8)
+                    .toUriString();
+            res.sendRedirect(target);
+            log.info("[CTRL] Redirecting back to frontend with tokens: {}", target);
+
+        } catch (ApiException e) {
+            if ("app".equalsIgnoreCase(state)) {
+                String target = UriComponentsBuilder.fromUriString("aura://oauth-callback")
+                        .queryParam("error", e.getErrorCode())
+                        .queryParam("status", e.getStatus().value())
+                        .queryParam("message", e.getMessage()) // 앱이 토스트 등에 표시할 수 있음
+                        .build(true).toUriString();
+                res.sendRedirect(target);
+                return;
+            }
+            // 웹: 전용 에러 페이지가 없어도 라우팅만 정해두면 됨(예: /auth/error -> 전역 토스트)
+            String target = UriComponentsBuilder.fromUriString(frontendUrl)
+                    .path("/auth/error")
+                    .queryParam("status", e.getStatus().value())
+                    .queryParam("code", e.getErrorCode())
+                    .queryParam("message", e.getMessage())
+                    .build()
+                    .encode(StandardCharsets.UTF_8)
+                    .toUriString();
+
+            res.sendRedirect(target);
+        } catch (Exception e) {
+            log.error("[CALLBACK] unexpected error", e);
+            if ("app".equalsIgnoreCase(state)) {
+                String deeplink = UriComponentsBuilder.fromUriString("aura://oauth-callback")
+                        .queryParam("error", "INTERNAL_SERVER_ERROR")
+                        .queryParam("status", 500)
+                        .queryParam("message", "서버 내부 오류가 발생했습니다.")
+                        .build()
+                        .encode(StandardCharsets.UTF_8)
+                        .toUriString();
+                res.sendRedirect(deeplink);
+                return;
+            }
+            String target = UriComponentsBuilder.fromUriString(frontendUrl)
+                    .path("/auth/error")
+                    .queryParam("status", 500)
+                    .queryParam("code", "INTERNAL_SERVER_ERROR")
+                    .queryParam("message", "서버 내부 오류가 발생했습니다.")
                     .build(true).toUriString();
-            res.sendRedirect(target);  // 302
-            return;
+            res.sendRedirect(target);
         }
-
-        // 웹 모드: 쿠키 세팅 후 프론트로 리다이렉트
-        // refresh는 Http
-        res.addHeader(HttpHeaders.SET_COOKIE, refreshCookie(dto.refreshToken()).toString());
-
-        // 2) Access(JWT)를 WEB_SESSION 쿠키로 심음 (프론트는 쿠키 기반으로만 동작)
-        res.addHeader(HttpHeaders.SET_COOKIE, webSessionCookie(dto.accessToken()).toString());
-
-        String target = UriComponentsBuilder.fromUriString(frontendUrl)
-                .queryParam("signUp", dto.signUp())
-                .build().toUriString();
-
-        res.sendRedirect(target); // 302
-        log.info("[CTRL] Redirecting back to frontend with tokens: {}", target);
     }
 
     // 리프레시
@@ -145,8 +197,12 @@ public class AuthController {
                 (rt!=null));
 
         if (rt == null) {
-            return ResponseEntity.badRequest()
-                    .body(ApiResponse.error(400, "리프레시 토큰이 누락되었습니다.", Map.of("code", "MISSING_REFRESH_TOKEN")));
+            throw new sulhoe.aura.handler.ApiException(
+                    org.springframework.http.HttpStatus.BAD_REQUEST,
+                    "요청 형식이 올바르지 않습니다.",
+                    "MISSING_REFRESH_TOKEN",
+                    "refreshToken"
+            );
         }
 
         try{
@@ -160,17 +216,40 @@ public class AuthController {
             return ResponseEntity.ok(ApiResponse.success(
                     Map.of("accessToken", dto.accessToken(), "refreshToken", dto.refreshToken())
             ));
+        } catch (sulhoe.aura.handler.ApiException ex) {
+            // 서비스가 401을 던지면 쿠키 정리 헤더를 보장
+            if (ex.getStatus().value() == 401) {
+                var headers = new HttpHeaders();
+                headers.add(HttpHeaders.SET_COOKIE, clearCookie("refreshToken").toString());
+                headers.add(HttpHeaders.SET_COOKIE, clearCookie("WEB_SESSION").toString());
+                headers.add(HttpHeaders.WWW_AUTHENTICATE,
+                        "Bearer error=\"invalid_token\", error_description=\"refresh_expired_or_invalid\"");
+                throw new sulhoe.aura.handler.ApiException(
+                        org.springframework.http.HttpStatus.UNAUTHORIZED,
+                        ex.getMessage(),
+                        ex.getErrorCode(),
+                        "refreshToken",
+                        headers
+                );
+            }
+            throw ex; // 401 외의 ApiException은 그대로
         } catch (RuntimeException e) {
             log.warn("[REFRESH] invalid/expired RT: {}", e.getMessage());
 
-            response.addHeader(HttpHeaders.SET_COOKIE, clearCookie("refreshToken").toString());
-            response.addHeader(HttpHeaders.SET_COOKIE, clearCookie("WEB_SESSION").toString());
+            // 쿠키 제거 + WWW-Authenticate 헤더를 ApiException에 실어 전달
+            var headers = new HttpHeaders();
+            headers.add(HttpHeaders.SET_COOKIE, clearCookie("refreshToken").toString());
+            headers.add(HttpHeaders.SET_COOKIE, clearCookie("WEB_SESSION").toString());
+            headers.add(HttpHeaders.WWW_AUTHENTICATE,
+                    "Bearer error=\"invalid_token\", error_description=\"refresh_expired_or_invalid\"");
 
-            // 표준 오류 헤더 추가 -> 프런트가 401 원인을 쉽게 구분
-            return ResponseEntity.status(401)
-                    .header(HttpHeaders.WWW_AUTHENTICATE,
-                            "Bearer error=\"invalid_token\", error_description=\"refresh_expired_or_invalid\"")
-                    .body(ApiResponse.error(401, "Invalid refresh token", Map.of("code","INVALID_REFRESH_TOKEN")));
+            throw new sulhoe.aura.handler.ApiException(
+                    org.springframework.http.HttpStatus.UNAUTHORIZED,
+                    "토큰이 유효하지 않거나 만료되었습니다.",
+                    "INVALID_REFRESH_TOKEN",
+                    "refreshToken",
+                    headers
+            );
         }
     }
 
@@ -178,8 +257,12 @@ public class AuthController {
     public ResponseEntity<String> ssoBridge(@RequestParam("code") String ticket) {
         var payload = ssoTicketService.consume(ticket); // 1회성, 짧은 TTL 검증
         if (payload == null) {
-            return ResponseEntity.status(401).contentType(MediaType.TEXT_PLAIN)
-                    .body("Invalid or expired SSO ticket");
+            throw new sulhoe.aura.handler.ApiException(
+                    org.springframework.http.HttpStatus.UNAUTHORIZED,
+                    "유효하지 않거나 만료된 SSO 티켓입니다.",
+                    "INVALID_SSO_TICKET",
+                    "code"
+            );
         }
 
         // 필요 정보 복원

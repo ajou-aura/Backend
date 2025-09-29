@@ -61,17 +61,17 @@ public class GoogleOAuthService {
                         resp.bodyToMono(String.class).map(body ->
                                 new ApiException(
                                         HttpStatus.BAD_REQUEST,
+                                        "유효하지 않은 인가 코드입니다.",
                                         "OAUTH_TOKEN_EXCHANGE_FAILED",
-                                        "code",
-                                        "유효하지 않은 인가 코드입니다."
+                                        "code"
                                 )))
-                .onStatus(HttpStatusCode::is4xxClientError, resp ->
+                .onStatus(HttpStatusCode::is5xxServerError, resp ->
                         resp.bodyToMono(String.class).map(body ->
                                 new ApiException(
                                         HttpStatus.BAD_GATEWAY,
+                                        "구글 인증 서버에 일시적인 문제가 있습니다.",
                                         "OAUTH_GOOGLE_UNAVAILABLE",
-                                        null,
-                                        "구글 인증 서버에 일시적인 문제가 있습니다."
+                                        null
                                 )))
                 .bodyToMono(String.class)
                 .block();
@@ -80,14 +80,19 @@ public class GoogleOAuthService {
         try {
             tokenNode = om.readTree(tokenJson);
         } catch (Exception e) {
-            throw new ApiException(HttpStatus.BAD_GATEWAY,
-                    "OAUTH_TOKEN_PARSE_FAILED", null, "토큰 응답 파싱에 실패했습니다.");
+            throw new ApiException(
+                    HttpStatus.BAD_GATEWAY,
+                    "토큰 응답 파싱에 실패했습니다.",
+                    "OAUTH_TOKEN_PARSE_FAILED",
+                    null);
         }
         String accessToken = tokenNode.path("access_token").asText();
         if (accessToken == null || accessToken.isBlank()) {
             // 구글이 200을 주었지만 access_token이 없는 비정상 응답
             throw new ApiException(HttpStatus.BAD_GATEWAY,
-                    "OAUTH_TOKEN_MISSING", null, "유효한 액세스 토큰이 없습니다.");
+                    "유효한 액세스 토큰이 없습니다.",
+                    "OAUTH_TOKEN_MISSING",
+                    null);
         }
 
         String userJson = googleWebClient.get()
@@ -98,17 +103,17 @@ public class GoogleOAuthService {
                         resp.bodyToMono(String.class).map(body ->
                                 new ApiException(
                                         HttpStatus.UNAUTHORIZED,
+                                        "사용자 정보를 불러올 수 없습니다.",
                                         "OAUTH_USERINFO_FAILED",
-                                        null,
-                                        "사용자 정보를 불러올 수 없습니다."
+                                        null
                                 )))
-                .onStatus(HttpStatusCode::is4xxClientError, resp ->
+                .onStatus(HttpStatusCode::is5xxServerError, resp ->
                         resp.bodyToMono(String.class).map(body ->
                                 new ApiException(
                                         HttpStatus.BAD_GATEWAY,
+                                        "구글 사용자 정보 서비스에 문제가 있습니다.",
                                         "OAUTH_GOOGLE_UNAVAILABLE",
-                                        null,
-                                        "구글 사용자 정보 서비스에 문제가 있습니다."
+                                        null
                                 )))
                 .bodyToMono(String.class)
                 .block();
@@ -117,18 +122,28 @@ public class GoogleOAuthService {
         try {
             userNode = om.readTree(userJson);
         } catch (Exception e) {
-            throw new ApiException(HttpStatus.BAD_GATEWAY,
-                    "OAUTH_USERINFO_PARSE_FAILED", null, "사용자 정보 파싱에 실패했습니다.");
+            throw new ApiException(
+                    HttpStatus.BAD_GATEWAY,
+                    "사용자 정보 파싱에 실패했습니다.",
+                    "OAUTH_USERINFO_PARSE_FAILED",
+                    null);
         }
-        String name = userNode.get("name").asText();
+        String name = userNode.path("name").asText();
         String email = userNode.path("email").asText();
-        if (email == null || email.isBlank()) {
-            throw new ApiException(HttpStatus.BAD_GATEWAY,
-                    "OAUTH_EMAIL_MISSING", "email", "구글 계정 이메일을 가져오지 못했습니다.");
+        if (email.isBlank()) {
+            throw new ApiException(
+                    HttpStatus.BAD_GATEWAY,
+                    "구글 계정 이메일을 가져오지 못했습니다.",
+                    "OAUTH_EMAIL_MISSING",
+                    "email"
+            );
         }
         if (!isAllowedDomain(email)) {
-            throw new ApiException(HttpStatus.FORBIDDEN,
-                    "OAUTH_FORBIDDEN_DOMAIN", "email", "아주대(@ajou.ac.kr) 계정만 로그인할 수 있습니다.");
+            throw new ApiException(
+                    HttpStatus.FORBIDDEN,
+                    "아주대(@ajou.ac.kr) 계정만 로그인할 수 있습니다.",
+                    "OAUTH_FORBIDDEN_DOMAIN",
+                    "email");
         }
 
         return new OAuthUserInfo(name, email, "DefaultDept");

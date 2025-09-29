@@ -16,6 +16,17 @@ import java.util.Locale;
 public class PushNotificationService {
     private static final Logger logger = LoggerFactory.getLogger(PushNotificationService.class);
 
+    /** 최종 페이로드: title(고정 규칙), body(공지 제목) */
+    private static record Payload(String title, String body) {}
+
+            /** 공통 규칙: title = "[type] 새로운 공지사항이 게시되었습니다.", body = 공지 제목 */
+            private static Payload buildPayload(String type, String noticeTitle) {
+                String t = nz(type);
+                String header = "[" + (t.isBlank() ? "unknown" : t) + "] 새로운 공지사항이 게시되었습니다.";
+                String body = nz(noticeTitle);
+                return new Payload(header, body);
+            }
+
     public void sendPushNotification(List<NoticeDto> newNotices, String type) {
         if (newNotices == null || newNotices.isEmpty()) {
             logger.info("No notices to send");
@@ -38,10 +49,12 @@ public class PushNotificationService {
 
     public void sendToTokens(Collection<String> tokens, String type, String title, String link) {
         if (tokens == null || tokens.isEmpty()) return;
+        Payload p = buildPayload(type, title); // title = 공지 제목
         MulticastMessage msg = MulticastMessage.builder()
                 .putData("type", nz(type))
+                .putData("title", p.title())
+                .putData("body", p.body())
                 .putData("link", nz(link))
-                .putData("body", nz(title))
                 .addAllTokens(tokens)
                 .setAndroidConfig(androidHighPriority(Duration.ofHours(6)))
                 .build();
@@ -56,11 +69,13 @@ public class PushNotificationService {
 
     public void sendToTopic(String topic, String type, String title, String link) {
         try {
+            Payload p = buildPayload(type, title); // title = 공지 제목
             Message message = Message.builder()
                     .setTopic(topic)
                     .putData("type", nz(type))
+                    .putData("title", p.title())
+                    .putData("body", p.body())
                     .putData("link", nz(link))
-                    .putData("body", nz(title))
                     .setAndroidConfig(androidHighPriority(Duration.ofHours(6)))
                     .build();
 

@@ -28,7 +28,7 @@ public class AdminPushController {
     private final PushNotificationService push;
     private final UserRepository userRepo;
     private final KeywordRepository keywordRepo;
-    private final UserTypeKeywordRepository utikRepo; // ✅ 추가
+    private final UserTypeKeywordRepository utikRepo; // 추가
 
     @Value("${app.admin.emails:}") // 쉼표 구분
     private String adminEmails;
@@ -58,7 +58,7 @@ public class AdminPushController {
 
     // title 필드는 "공지 제목"으로 해석됩니다. (서버가 최종 title/body 포맷을 강제 적용)
     public record TopicReq(String topic, String type, String title, String link) {}
-    public record UsersReq(List<Long> userIds, String type, String title, String link) {}
+    public record EmailsReq(List<String> emails, String type, String title, String link) {}
     public record KeywordsReq(List<Long> keywordIds, String type, String title, String link) {}
 
     /* ===== 1) 임의 토픽으로 발송 ===== */
@@ -70,58 +70,78 @@ public class AdminPushController {
         return ResponseEntity.ok(ApiResponse.success(null));
     }
 
-    /* ===== 2) 특정 사용자(IDs)에게 발송 ===== */
+    /* ===== 2) 특정 사용자(Emails)에게 발송 ===== */
     @PostMapping("/users")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> sendToUsers(@RequestBody UsersReq req) {
+    public ResponseEntity<ApiResponse<Map<String, Object>>> sendToUsers(@RequestBody EmailsReq req) {
         ensureAdmin();
-        if (req.userIds() == null || req.userIds().isEmpty()) {
-            return ResponseEntity.badRequest().body(ApiResponse.error(400, "userIds가 비어있습니다.", null));
+        if (req.emails() == null || req.emails().isEmpty()) {
+            return ResponseEntity.badRequest().body(ApiResponse.error(400, "emails가 비어있습니다.", null));
         }
+        // 중복/공백 제거 + 존재 사용자만 필터링(선택)
+        Set<String> uniq = req.emails().stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(s -> !s.isBlank())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+
         int sent = 0;
-        for (Long uid : new LinkedHashSet<>(req.userIds())) {
-            if (uid == null) continue;
-            Optional<User> u = userRepo.findById(uid);
-            if (u.isPresent()) {
-                push.sendToUserTopic(uid, req.type(), req.title(), req.link());
-                sent++;
-            }
+        for (String email : uniq) {
+            if (!userRepo.existsByEmail(email)) continue;
+            push.sendToUserTopic(email, req.type(), req.title(), req.link());
+            sent++;
         }
         return ResponseEntity.ok(ApiResponse.success(Map.of(
-                "requested", req.userIds().size(),
+                "requested", req.emails().size(),
+                "unique", uniq.size(),
                 "sent", sent
         )));
     }
 
-    /* ===== 3) (수정) type 내 특정 키워드 구독자들에게 발송 =====
-       - 기존: User.subscribedKeywords 기반 → 삭제됨
-       - 변경: user_type_keywords 에서 (type, keywordIds) 매칭 사용자 조회
-     */
+    // 3) type 내 특정 키워드 구독자들에게 발송 (uid -> email 변환 후 전송)
     @PostMapping("/keywords")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> sendToKeywordSubscribers(@RequestBody KeywordsReq req) {
+    public ResponseEntity<ApiResponse<Map<String, Object>>> sendToKeywordSubscribers(
+            @RequestBody KeywordsReq req) {
         ensureAdmin();
         if (req.keywordIds() == null || req.keywordIds().isEmpty()) {
-            return ResponseEntity.badRequest().body(ApiResponse.error(400, "keywordIds가 비어있습니다.", null));
+            return ResponseEntity.badRequest().body(
+                    ApiResponse.error(400, "keywordIds가 비어있습니다.", null));
         }
         if (req.type() == null || req.type().isBlank()) {
-            return ResponseEntity.badRequest().body(ApiResponse.error(400, "type이 비어있습니다.", null));
+            return ResponseEntity.badRequest().body(
+                    ApiResponse.error(400, "type이 비어있습니다.", null));
         }
 
-        // 존재하는 키워드만 집계 (정보용)
         List<Keyword> keywords = keywordRepo.findAllById(req.keywordIds());
-
-        // 🔎 해당 type에 '이 키워드들'을 구독한 사용자 찾기 (중복 제거)
         List<Long> uidList = utikRepo.findUserIdsByTypeAndKeywordIds(req.type(), req.keywordIds());
-        Set<Long> targets = new LinkedHashSet<>(uidList);
+        if (uidList.isEmpty()) {
+            return ResponseEntity.ok(ApiResponse.success(Map.of(
+                    "type", req.type(),
+                    "keywords", keywords.stream().map(Keyword::getId).toList(),
+                    "targets", 0,
+                    "sent", 0
+            )));
+        }
+
+        // uid → email 매핑
+        List<User> users = userRepo.findAllById(new LinkedHashSet<>(uidList));
+        List<String> emails = users.stream()
+                .map(User::getEmail)
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(s -> !s.isBlank())
+                .distinct()
+                .toList();
 
         int sent = 0;
-        for (Long uid : targets) {
-            push.sendToUserTopic(uid, req.type(), req.title(), req.link());
+        for (String email : emails) {
+            push.sendToUserTopic(email, req.type(), req.title(), req.link());
             sent++;
         }
+
         return ResponseEntity.ok(ApiResponse.success(Map.of(
                 "type", req.type(),
                 "keywords", keywords.stream().map(Keyword::getId).toList(),
-                "targets", targets.size(),
+                "targets", emails.size(),
                 "sent", sent
         )));
     }

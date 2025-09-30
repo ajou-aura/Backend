@@ -1,12 +1,14 @@
 package sulhoe.aura.controller;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 import sulhoe.aura.dto.ApiResponse;
 import sulhoe.aura.entity.UserTypePreference;
+import sulhoe.aura.handler.ApiException;
 import sulhoe.aura.repository.UserRepository;
 import sulhoe.aura.service.keyword.KeywordService;
 
@@ -23,9 +25,14 @@ public class SubscriptionController {
 
     private Long currentUserId() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        @SuppressWarnings("unchecked")
-        Map<String, String> p = (Map<String, String>) auth.getPrincipal();
-        return userRepo.findByEmail(p.get("email")).orElseThrow().getId();
+        Object principal = auth.getPrincipal();
+        if (!(principal instanceof Map<?,?> p) || p.get("email") == null) {
+            throw new ApiException(HttpStatus.UNAUTHORIZED, "인증 정보가 없습니다.", "UNAUTHORIZED", "auth");
+        }
+        String email = String.valueOf(p.get("email"));
+        return userRepo.findByEmail(email).orElseThrow(() ->
+                new ApiException(HttpStatus.UNAUTHORIZED, "사용자를 찾을 수 없습니다.", "UNAUTHORIZED", "email")
+        ).getId();
     }
 
     /** 현재 type 구독 모드 조회 */

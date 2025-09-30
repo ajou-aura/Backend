@@ -343,8 +343,16 @@ public class KeywordService {
             if (keywordModeUserIds.contains(uid)) targets.add(uid);
         }
 
-        for (Long uid : targets) {
-            push.sendToUserTopic(uid, type, title, link);
+        // 이메일로 변환 후 이메일 토픽으로 발송
+        if (!targets.isEmpty()) {
+            // 성능을 위해 batch 조회 권장: userRepo.findAllById(targets)
+            List<User> users = userRepo.findAllById(targets);
+            for (User u : users) {
+                String email = u.getEmail();
+                if (email != null && !email.isBlank()) {
+                    push.sendToUserTopic(email, type, title, link);
+                }
+            }
         }
 
         log.debug("[onNoticeSaved] type={}, ALL={} users, KEYWORD={} users, matchedTargets={}",

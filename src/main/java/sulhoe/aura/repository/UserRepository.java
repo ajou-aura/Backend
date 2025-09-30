@@ -15,4 +15,6 @@ public interface UserRepository extends JpaRepository<User, Long> {
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("update User u set u.refreshToken = :newRt where u.email = :email and u.refreshToken = :oldRt")
     int rotateRefreshTokenAtomically(String email, String oldRt, String newRt);
+
+    boolean existsByEmail(String email);
 }

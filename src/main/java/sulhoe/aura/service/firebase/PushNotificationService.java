@@ -6,6 +6,7 @@ import com.google.firebase.messaging.Message;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import sulhoe.aura.service.notice.NoticeTypeLabelResolver;
 
 import java.text.Normalizer;
 import java.time.Duration;
@@ -15,10 +16,16 @@ import java.util.Locale;
 public class PushNotificationService {
     private static final Logger logger = LoggerFactory.getLogger(PushNotificationService.class);
 
+    private final NoticeTypeLabelResolver labelResolver;
+
+    public PushNotificationService(NoticeTypeLabelResolver labelResolver) {
+        this.labelResolver = labelResolver;
+    }
+
     // 공통 규칙: title = "[type] 새로운 공지사항이 게시되었습니다.", body = 공지 제목
-    private static Payload buildPayload(String type, String noticeTitle) {
-        String t = nz(type);
-        String header = "[" + (t.isBlank() ? "unknown" : t) + "] 새로운 공지사항이 게시되었습니다.";
+    private Payload buildPayload(String type, String noticeTitle) {
+        String label = labelResolver.labelOf(type);
+        String header = "[" + (label.isBlank() ? "알 수 없음" : label) + "] 새로운 공지사항이 게시되었습니다.";
         String body = nz(noticeTitle);
         return new Payload(header, body);
     }

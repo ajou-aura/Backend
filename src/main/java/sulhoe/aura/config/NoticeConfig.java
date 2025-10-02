@@ -20,4 +20,7 @@ public class NoticeConfig {
     private Set<String> categoriesRequirePostedDate;
     // key = 카테고리 이름, value = Spring Bean 이름(NoticeParser)
     private Map<String,String> parser;
+
+    // 추가: key = 타입(code), value = 한글 라벨
+    private Map<String, String> names;
 }

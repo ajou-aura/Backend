@@ -6,9 +6,7 @@ import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
 @SpringBootApplication
-@EnableJpaRepositories(basePackages = "sulhoe.aura.repository")
 @EnableJpaAuditing
-@EntityScan(basePackages = "sulhoe.aura.entity")
 @EnableScheduling
 public class AuraApplication {
 

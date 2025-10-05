@@ -4,7 +4,11 @@ import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.Setter;
+import org.springframework.data.annotation.CreatedDate;
+import org.springframework.data.annotation.LastModifiedDate;
+import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
+import java.time.LocalDateTime;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
@@ -13,6 +17,7 @@ import java.util.UUID;
 @Setter
 @Getter
 @NoArgsConstructor
+@EntityListeners(AuditingEntityListener.class)
 @Table(name = "notices")
 public class Notice {
 
@@ -40,6 +45,13 @@ public class Notice {
 
     @Column
     private String link;
+
+    @CreatedDate
+    @Column(updatable = false)
+    private LocalDateTime createdAt;  // DB 저장 시각
+
+    @LastModifiedDate
+    private LocalDateTime updatedAt;  // DB 수정 시각
 
     @ManyToMany(mappedBy = "savedNotices")
     private Set<User> savedByUsers = new HashSet<>();

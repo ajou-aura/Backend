@@ -79,24 +79,30 @@ public class KeywordService {
         }
     }
 
+    // ===== 재태깅 메서드 수정 =====
     @Transactional
     public void retagAll() {
-        // 한 트랜잭션 안에서 반복 처리
         final List<Keyword> globals = keywordRepo.findAllByScope(Scope.GLOBAL);
-        noticeRepo.findAll().forEach(n -> tagNoticeWithGlobalKeywords(n.getId(), globals));
-    }
+        // 페이징 처리로 메모리 부담 감소
+        int pageSize = 100;
+        int page = 0;
+        List<Notice> notices;
+        do {
+            notices = noticeRepo.findAll(
+                    org.springframework.data.domain.PageRequest.of(page++, pageSize)
+            ).getContent();
 
-    // 기존 ID 버전은 리태깅 배치용으로 유지
-    @Transactional
-    public void tagNoticeWithGlobalKeywords(UUID noticeId, List<Keyword> globals) {
-        Notice managed = noticeRepo.findById(noticeId).orElseThrow(()->
-                new ApiException(
-                        HttpStatus.NOT_FOUND,
-                        "대상을 찾을 수 없습니다.",
-                        "NOT_FOUND",
-                        "noticeId"
-                ));
-        tagNoticeWithGlobalKeywords(managed, globals);
+            for (Notice n : notices) {
+                tagNoticeWithGlobalKeywords(n, globals);
+            }
+
+            // 배치 단위로 flush + clear
+            noticeRepo.flush();
+            log.info("[retagAll] 진행: {}개 처리 완료", page * pageSize);
+
+        } while (!notices.isEmpty() && notices.size() == pageSize);
+
+        log.info("[retagAll] 전체 재태깅 완료");
     }
 
     /** 엔티티를 반드시 영속 상태로 다시 꺼내서 조작 */
@@ -104,13 +110,36 @@ public class KeywordService {
     public void tagNoticeWithGlobalKeywords(Notice managed, List<Keyword> globals) {
         final String title = Optional.ofNullable(managed.getTitle()).orElse("");
 
-        // 기존 글로벌만 제거
-        managed.getKeywords().removeIf(k -> k.getScope() == Scope.GLOBAL);
+        // 1) 매칭될 전역 키워드의 정규화된 phrase 집합
+        Set<String> globalMatchedNorms = globals.stream()
+                .filter(k -> containsIgnoreCase(title, k.getPhrase()))
+                .map(k -> normalizeForCompare(k.getPhrase()))
+                .collect(Collectors.toSet());
 
-        // 매칭된 글로벌만 추가
+        // 2) 기존 키워드 제거:
+        //    - GLOBAL은 무조건 제거 (재태깅)
+        //    - USER 중 전역과 겹치는 것도 제거 (덮어쓰기)
+        managed.getKeywords().removeIf(k -> {
+            if (k.getScope() == Scope.GLOBAL) {
+                return true;
+            }
+            if (k.getScope() == Scope.USER) {
+                String userNorm = normalizeForCompare(k.getPhrase());
+                if (globalMatchedNorms.contains(userNorm)) {
+                    log.debug("[Keyword] 개인→전역 덮어쓰기: noticeId={}, phrase={}",
+                            managed.getId(), k.getPhrase());
+                    return true;
+                }
+            }
+            return false;
+        });
+        // 3) 매칭된 전역 키워드 추가
         globals.stream()
                 .filter(k -> containsIgnoreCase(title, k.getPhrase()))
                 .forEach(managed.getKeywords()::add);
+
+        // 4) 명시적으로 저장 (더티 체킹 보장)
+        noticeRepo.save(managed);
     }
 
     /* ===== 유틸 ===== */
@@ -320,7 +349,7 @@ public class KeywordService {
 
         // 1) 전역 키워드 태깅(검색 캐시 유지)
         final List<Keyword> globals = keywordRepo.findAllByScope(Scope.GLOBAL);
-        tagNoticeWithGlobalKeywords(n.getId(), globals);
+        tagNoticeWithGlobalKeywords(n, globals);
 
         final String title = Optional.ofNullable(n.getTitle()).orElse("");
         final String link  = n.getLink();

@@ -10,7 +10,7 @@ notice:
   names:
     general: "일반"
     scholarship: "장학"
-    dormitory: "기숙사"
+    dormitory: "생활관"
     department:
       # 공과대학
       me: "기계공학과"

@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import sulhoe.aura.entity.Notice;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -17,11 +18,13 @@ public interface NoticeRepository extends JpaRepository<Notice, UUID> {
 
     // 기본 페이징
     Page<Notice> findByType(String type, Pageable pageable);
+    boolean existsByLink(String link);
     Page<Notice> findByTitleContainingIgnoreCase(String title, Pageable pageable);
     Page<Notice> findByTypeAndTitleContainingIgnoreCase(String type, String title, Pageable pageable);
 
     @Query("select n from Notice n left join fetch n.keywords where n.id = :id")
     Optional<Notice> findByIdWithKeywords(@Param("id") UUID id);
+    long countByTypeAndCreatedAtAfter(String type, LocalDateTime dateTime);
 
     /* ========== 키워드 매칭: ANY (OR) ========== */
 

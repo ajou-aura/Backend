@@ -61,7 +61,7 @@ public class NoticeController {
             @RequestParam(value = "globalIds",   required = false) List<Long> globalIds,
             @RequestParam(value = "personalIds", required = false) List<Long> personalIds,
             @RequestParam(value = "match",  required = false, defaultValue = "any") String match,
-            @PageableDefault(size = 10, sort = "date", direction = Sort.Direction.DESC)
+            @PageableDefault(size = 10, sort = {"date", "createdAt"}, direction = Sort.Direction.DESC)
             Pageable pageable
     ) {
         // null → 빈 리스트로 보정

@@ -300,4 +300,34 @@ public class AuthController {
                 .body(html);
     }
 
+    /**
+     * 로그아웃 처리
+     * - DB에서 refreshToken 무효화
+     * - refreshToken과 WEB_SESSION 쿠키 삭제
+     * - 웹/앱 모두 사용 가능
+     */
+    @PostMapping("/logout")
+    public ResponseEntity<ApiResponse<Void>> logout(
+            @CookieValue(value = "refreshToken", required = false) String cookieRt,
+            HttpServletResponse response
+    ) {
+        log.info("[LOGOUT] called: hasRt={}", (cookieRt != null));
+
+        // 리프레시 토큰이 있으면 DB에서 무효화
+        if (cookieRt != null) {
+            try {
+                authService.revokeRefreshToken(cookieRt);
+                log.info("[LOGOUT] Successfully revoked refresh token");
+            } catch (Exception e) {
+                log.warn("[LOGOUT] Failed to revoke refresh token: {}", e.getMessage());
+                // 실패해도 쿠키는 삭제
+            }
+        }
+
+        // 쿠키 삭제
+        response.addHeader(HttpHeaders.SET_COOKIE, clearCookie("refreshToken").toString());
+        response.addHeader(HttpHeaders.SET_COOKIE, clearCookie("WEB_SESSION").toString());
+
+        return ResponseEntity.ok(ApiResponse.success(null));
+    }
 }

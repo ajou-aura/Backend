@@ -52,11 +52,12 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(repo)
                         .ignoringRequestMatchers(
-                                new MvcRequestMatcher(introspector(), "/api/auth/**"),// 로그인/콜백/리프레시/SSO 브리지 등
-                                (HttpServletRequest req) -> { // Authorization: Bearer면 CSRF 제외
-                                    String auth = req.getHeader("Authorization");
-                                    return auth != null && auth.startsWith("Bearer ");
-                                }
+                                new MvcRequestMatcher(introspector(), "/api/**")
+                                // new MvcRequestMatcher(introspector(), "/api/auth/**"),
+                                // (HttpServletRequest req) -> {
+                                //     String auth = req.getHeader("Authorization");
+                                //     return auth != null && auth.startsWith("Bearer ");
+                                // }
                         )
                 )
 

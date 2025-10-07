@@ -39,7 +39,9 @@ public class AuthService {
         if (isSignUp) {
             // 신규 가입
             Set<String> depts = new HashSet<>();
-            depts.add(info.department());
+            if (info.department() != null && !info.department().isBlank()) {
+                depts.add(info.department());
+            }
 
             user = new User(
                     info.name(),

@@ -146,6 +146,6 @@ public class GoogleOAuthService {
                     "email");
         }
 
-        return new OAuthUserInfo(name, email, "DefaultDept");
+        return new OAuthUserInfo(name, email, null);
     }
 }

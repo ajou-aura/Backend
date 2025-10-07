@@ -78,7 +78,7 @@ public class SecurityConfig {
                                 "/api/subscriptions/**",
                                 "/favicon.ico", "/", "/index.html", "/assets/**", "/static/**", "/health"
                         ).permitAll()
-
+                        .requestMatchers(HttpMethod.GET, "/api/keywords/global").permitAll()
                         // 그 외 보호
                         .anyRequest().authenticated()
                 )

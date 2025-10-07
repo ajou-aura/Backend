@@ -31,6 +31,7 @@ public class KeywordService {
     private final NoticeRepository noticeRepo;
     private final UserRepository userRepo;
     private final PushNotificationService push;
+    private final sulhoe.aura.config.NoticeConfig noticeConfig;
 
     // type 기반
     private final UserTypePreferenceRepository utpRepo;
@@ -244,6 +245,28 @@ public class KeywordService {
                     HttpStatus.NOT_FOUND,
                     "대상을 찾을 수 없습니다.",
                     "NOT_FOUND",
+                    "id"
+            );
+        }
+
+        List<UserTypeKeyword> links = utikRepo.findAllByUser_IdAndKeyword_Id(ownerId, keywordId);
+
+        // 구독(연결) 중이면 항상 409 반환
+        if (!links.isEmpty()) {
+            Map<String, String> nameMap = Optional.ofNullable(noticeConfig.getNames()).orElse(Map.of());
+
+            String joinedTypes = links.stream()
+                    .map(UserTypeKeyword::getType)                  // code
+                    .filter(Objects::nonNull)
+                    .map(t -> nameMap.getOrDefault(t, t))           // 한글 라벨 매핑
+                    .distinct()
+                    .sorted()
+                    .collect(java.util.stream.Collectors.joining(", "));
+
+            throw new ApiException(
+                    HttpStatus.CONFLICT,
+                    "이 키워드는 " + joinedTypes + " 공지에서 구독 중이라 삭제할 수 없습니다.",
+                    "IN_USE_BY_SUBSCRIPTION",
                     "id"
             );
         }

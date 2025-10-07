@@ -24,6 +24,8 @@ public interface UserTypeKeywordRepository extends JpaRepository<UserTypeKeyword
     List<UserTypeKeyword> findAllByUserAndType(@Param("userId") Long userId, @Param("type") String type);
 
     boolean existsByUser_IdAndTypeAndKeyword_Id(Long userId, String type, Long keywordId);
+    boolean existsByUser_IdAndKeyword_Id(Long userId, Long keywordId);
+    List<UserTypeKeyword> findAllByUser_IdAndKeyword_Id(Long userId, Long keywordId);
 
     @Query("select distinct utk.user.id from UserTypeKeyword utk " +
             "where utk.type = :type and utk.keyword.id in :keywordIds")

@@ -1,7 +1,7 @@
 app:
   keywords:
     seed: "등록, 방학, 수강신청, 학사, 계절학기, 강의, 특강, 수업, 공모전, 장학, 채용, 설문, 대회"
-    retag-on-start: true
+    retag-on-start: ${RETAG:false}
   auth:
     allowed-domains: ajou.ac.kr
   admin:

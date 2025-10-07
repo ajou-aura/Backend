@@ -1,12 +1,10 @@
 package sulhoe.aura.service.login;
 
-import io.jsonwebtoken.JwtException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import sulhoe.aura.config.JwtTokenProvider;
 import sulhoe.aura.dto.notice.NoticeDto;
 import sulhoe.aura.dto.user.UserResponseDto;
 import sulhoe.aura.entity.Notice;
@@ -95,12 +93,24 @@ public class UserService {
         return list;
     }
 
-    /** 공통: 이메일로 사용자 조회 + 로그 */
+    private String normalizeEmail(String email) {
+        return email == null ? null : email.trim().toLowerCase(java.util.Locale.ROOT);
+    }
+
+    /**
+     * 공통: 이메일로 사용자 조회 + 로그
+     */
     private User findUserByEmail(String email) {
-        return userRepository.findByEmail(email)
+        final String norm = normalizeEmail(email);
+        return userRepository.findByEmailIgnoreCase(norm)
                 .orElseThrow(() -> {
                     log.warn("[SVC][USER] 미존재: email={}", email);
-                    return new IllegalArgumentException("사용자를 찾을 수 없습니다: " + email);
+                    return new sulhoe.aura.handler.ApiException(
+                            org.springframework.http.HttpStatus.NOT_FOUND,
+                            "사용자를 찾을 수 없습니다: " + norm,
+                            "USER_NOT_FOUND",
+                            "email"
+                    );
                 });
     }
 }

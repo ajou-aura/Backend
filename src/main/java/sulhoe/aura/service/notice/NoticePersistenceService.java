@@ -2,6 +2,7 @@ package sulhoe.aura.service.notice;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import sulhoe.aura.entity.Notice;
 import sulhoe.aura.repository.NoticeRepository;
@@ -16,25 +17,36 @@ import java.util.Optional;
 public class NoticePersistenceService {
     private final NoticeRepository noticeRepo;
 
-    // scraped 중에 신규 또는 업데이트된 엔티티만 저장/업데이트하고 그 목록을 반환
-    @Transactional
+    /** 청크 단위 진입: 내부에서 항목별 REQUIRES_NEW로 처리하여 fail-soft */
+    @Transactional(propagation = Propagation.SUPPORTS, readOnly = false)
     public List<Notice> persistNotices(List<Notice> scraped) {
         List<Notice> newOrUpdated = new ArrayList<>();
         for (Notice n : scraped) {
-            Optional<Notice> existingOpt = noticeRepo.findByLink(n.getLink());
-            if (existingOpt.isEmpty()) {
-                noticeRepo.save(n);
-                newOrUpdated.add(n);
-            } else {
-                Notice existing = existingOpt.get();
-                if (isUpdated(existing, n)) {
-                    merge(existing, n);
-                    noticeRepo.save(existing);
-                    newOrUpdated.add(existing);
-                }
+            try {
+                Notice saved = saveOrUpdateOne(n);
+                if (saved != null) newOrUpdated.add(saved);
+            } catch (Exception ex) {
+                org.slf4j.LoggerFactory.getLogger(NoticePersistenceService.class)
+                        .warn("[PERSIST] single item failed (link={}): {}", n.getLink(), ex.toString());
             }
         }
         return newOrUpdated;
+    }
+
+    /** 항목별 신규/업데이트 저장 – 새로운 트랜잭션 경계 */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public Notice saveOrUpdateOne(Notice n) {
+        Optional<Notice> existingOpt = noticeRepo.findByLink(n.getLink());
+        if (existingOpt.isEmpty()) {
+            return noticeRepo.save(n);
+        } else {
+            Notice existing = existingOpt.get();
+            if (isUpdated(existing, n)) {
+                merge(existing, n);
+                return noticeRepo.save(existing);
+            }
+        }
+        return null; // 업데이트 필요 없음
     }
 
     private boolean isUpdated(Notice oldOne, Notice newOne) {

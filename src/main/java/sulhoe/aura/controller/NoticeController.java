@@ -32,10 +32,32 @@ public class NoticeController {
 
     // 현재 유저 ID (KeywordController와 동일한 방식)
     private Long currentUserId() {
+        String email = getEmail();
+        if (email == null) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.UNAUTHORIZED, "사용자 식별에 실패했습니다.");
+        }
+        return userRepo.findByEmailIgnoreCase(email.trim())
+                .map(sulhoe.aura.entity.User::getId)
+                .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(
+                        org.springframework.http.HttpStatus.UNAUTHORIZED, "등록되지 않은 사용자입니다."));
+    }
+
+    private static String getEmail() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated()) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.UNAUTHORIZED, "인증이 필요합니다.");
+        }
+        Object principal = auth.getPrincipal();
+        if (!(principal instanceof Map)) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.UNAUTHORIZED, "부적절한 인증 주체입니다.");
+        }
         @SuppressWarnings("unchecked")
-        Map<String, String> p = (Map<String, String>) auth.getPrincipal();
-        return userRepo.findByEmail(p.get("email")).orElseThrow().getId();
+        Map<String, String> p = (Map<String, String>) principal;
+        String email = p.get("email");
+        return email;
     }
 
     /**

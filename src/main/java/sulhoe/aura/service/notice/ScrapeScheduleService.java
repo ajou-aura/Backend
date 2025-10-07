@@ -27,12 +27,25 @@ public class ScrapeScheduleService {
                 noticeScrapeService.scrapeNotices(url, type);
                 log.debug("Scraping success for type: {}", type);
             } catch (Exception e) {
+                // scrapeNotices 내부에서 예외를 삼키지만, 혹시 모를 예외 대비
                 log.error("Scraping failed for type: {}", type, e);
                 failedTypes.add(type);
             }
         });
+
         if (!failedTypes.isEmpty()) {
             log.info(">>> 스크래핑 실패 카테고리: {}", failedTypes);
+            // 선택: 즉시 1회 재시도
+            for (String type : failedTypes) {
+                String url = noticeConfig.getUrls().get(type);
+                try {
+                    Thread.sleep(1000);
+                    noticeScrapeService.scrapeNotices(url, type);
+                    log.info("[retry] Scraping success for type: {}", type);
+                } catch (Exception e) {
+                    log.error("[retry] Scraping failed again for type: {}", type, e);
+                }
+            }
         }
     }
 }

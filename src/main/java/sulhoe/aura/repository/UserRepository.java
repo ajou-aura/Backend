@@ -11,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findByEmail(String email);
+    Optional<User> findByEmailIgnoreCase(String email);
     @Transactional
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("update User u set u.refreshToken = :newRt where u.email = :email and u.refreshToken = :oldRt")

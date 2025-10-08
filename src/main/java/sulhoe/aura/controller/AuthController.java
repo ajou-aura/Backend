@@ -145,7 +145,9 @@ public class AuthController {
                         .queryParam("error", e.getErrorCode())
                         .queryParam("status", e.getStatus().value())
                         .queryParam("message", e.getMessage()) // 앱이 토스트 등에 표시할 수 있음
-                        .build(true).toUriString();
+                        .build()
+                        .encode(StandardCharsets.UTF_8)
+                        .toUriString();
                 res.sendRedirect(target);
                 return;
             }
@@ -178,7 +180,9 @@ public class AuthController {
                     .queryParam("status", 500)
                     .queryParam("code", "INTERNAL_SERVER_ERROR")
                     .queryParam("message", "서버 내부 오류가 발생했습니다.")
-                    .build(true).toUriString();
+                    .build()
+                    .encode(StandardCharsets.UTF_8)
+                    .toUriString();
             res.sendRedirect(target);
         }
     }

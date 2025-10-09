@@ -410,4 +410,37 @@ public class KeywordService {
         log.debug("[onNoticeSaved] type={}, ALL={} users, KEYWORD={} users, matchedTargets={}",
                 type, allModeUserIds.size(), keywordModeUserIds.size(), targets.size());
     }
+
+    // 구독 삭제
+    @Transactional
+    public void removeAllSubscriptionsForType(Long userId, String type) {
+        if (type == null) return;
+        String t = type.trim();
+        if (t.isEmpty()) return;
+
+        // 키워드-타입 구독 전부 제거
+        utikRepo.deleteAllByUserAndType(userId, t);
+        // 타입 모드(ALL/KEYWORD/NONE) 설정 제거
+        utpRepo.deleteByUserIdAndType(userId, t);
+
+        log.info("[SUBS][CLEANUP] userId={}, type={} → subscriptions removed", userId, t);
+    }
+
+    @Transactional
+    public void removeAllSubscriptionsForTypes(Long userId, Collection<String> types) {
+        if (types == null || types.isEmpty()) return;
+        List<String> norm = types.stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .distinct()
+                .toList();
+        if (norm.isEmpty()) return;
+
+        utikRepo.deleteAllByUserAndTypes(userId, norm);
+        utpRepo.deleteAllByUserAndTypes(userId, norm);
+
+        log.info("[SUBS][CLEANUP] userId={}, types={} → subscriptions removed (batch)", userId, norm);
+    }
+
 }

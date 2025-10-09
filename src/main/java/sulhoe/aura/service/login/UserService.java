@@ -12,6 +12,7 @@ import sulhoe.aura.entity.User;
 import sulhoe.aura.handler.ApiException;
 import sulhoe.aura.repository.NoticeRepository;
 import sulhoe.aura.repository.UserRepository;
+import sulhoe.aura.service.keyword.KeywordService;
 
 import java.util.List;
 import java.util.Set;
@@ -23,6 +24,7 @@ import java.util.UUID;
 public class UserService {
     private final UserRepository userRepository;
     private final NoticeRepository noticeRepository;
+    private final KeywordService keywordService;
 
     @Transactional(readOnly = true)
     public UserResponseDto getUserInfoByEmail(String email) {
@@ -60,9 +62,17 @@ public class UserService {
     @Transactional
     public void removeDepartmentByEmail(String email, String dept) {
         User user = findUserByEmail(email);
-        boolean removed = user.getDepartments().remove(dept);
+        // 추가 시 trim 정규화를 했으므로 삭제도 동일 규칙 적용
+        String normalized = (dept == null) ? null : dept.trim();
+        boolean removed = user.getDepartments().remove(normalized);
         userRepository.save(user);
-        log.info("[SVC][DEPTS] 삭제: email={}, dept={}, removed={}", email, dept, removed);
+        log.info("[SVC][DEPTS] 삭제: email={}, dept={}, removed={}", email, normalized, removed);
+
+        // 실제로 학과가 제거되었을 때만 해당 type 구독 전체 정리
+        if (removed) {
+            // 학과 문자열 == type 키로 사용 중이라는 전제
+            keywordService.removeAllSubscriptionsForType(user.getId(), normalized);
+        }
     }
 
     @Transactional

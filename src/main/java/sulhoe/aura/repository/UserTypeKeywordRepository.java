@@ -1,6 +1,7 @@
 package sulhoe.aura.repository;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import sulhoe.aura.entity.UserTypeKeyword;
@@ -31,4 +32,12 @@ public interface UserTypeKeywordRepository extends JpaRepository<UserTypeKeyword
             "where utk.type = :type and utk.keyword.id in :keywordIds")
     List<Long> findUserIdsByTypeAndKeywordIds(@Param("type") String type,
                                               @Param("keywordIds") List<Long> keywordIds);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("delete from UserTypeKeyword utk where utk.user.id = :userId and utk.type = :type")
+    int deleteAllByUserAndType(@Param("userId") Long userId, @Param("type") String type);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("delete from UserTypeKeyword utk where utk.user.id = :userId and utk.type in :types")
+    int deleteAllByUserAndTypes(@Param("userId") Long userId, @Param("types") List<String> types);
 }

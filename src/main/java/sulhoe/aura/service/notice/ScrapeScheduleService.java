@@ -25,20 +25,27 @@ public class ScrapeScheduleService {
         noticeConfig.getUrls().forEach((type, url) -> {
             try {
                 noticeScrapeService.scrapeNotices(url, type);
-                log.info("Scraping success for type: {}", type);
+                log.debug("Scraping success for type: {}", type);
             } catch (Exception e) {
+                // scrapeNotices 내부에서 예외를 삼키지만, 혹시 모를 예외 대비
                 log.error("Scraping failed for type: {}", type, e);
                 failedTypes.add(type);
             }
         });
+
         if (!failedTypes.isEmpty()) {
-            log.warn(">>> 다음 카테고리에서 스크래핑에 실패했습니다: {}", failedTypes);
+            log.info(">>> 스크래핑 실패 카테고리: {}", failedTypes);
+            // 선택: 즉시 1회 재시도
+            for (String type : failedTypes) {
+                String url = noticeConfig.getUrls().get(type);
+                try {
+                    Thread.sleep(1000);
+                    noticeScrapeService.scrapeNotices(url, type);
+                    log.info("[retry] Scraping success for type: {}", type);
+                } catch (Exception e) {
+                    log.error("[retry] Scraping failed again for type: {}", type, e);
+                }
+            }
         }
     }
-
-    // (선택) 매일 새벽 3시 수행
-    // @Scheduled(cron = "0 0 3 * * ?")
-    // public void scheduledMaintenanceTask() {
-    //     // 예: 오래된 공지 삭제, 로그 정리 등
-    // }
 }

@@ -1,0 +1,74 @@
+app:
+  keywords:
+    seed: "등록, 방학, 수강신청, 학사, 계절학기, 강의, 특강, 수업, 공모전, 장학, 채용, 설문, 대회"
+    retag-on-start: ${RETAG:false}
+  auth:
+    allowed-domains: ajou.ac.kr
+  admin:
+    emails: "origami0352@ajou.ac.kr"
+notice:
+  names:
+    general: "일반"
+    scholarship: "장학"
+    dormitory: "생활관"
+    department:
+      # 공과대학
+      me: "기계공학과"
+      env: "환경안전공학과"
+      academic: "산업공학과"
+      ce: "건설시스템공학과"
+      che: "화학공학과"
+      tse: "교통시스템공학과"
+      mse: "첨단신소재공학과"
+      arch: "건축학과"
+      chembio: "응용화학생명공학과"
+      ise: "융합시스템공학과"
+      appchem: "응용화학과"
+      # 첨단ICT융합대학
+      ece: "전자공학과"
+      aisemi: "지능형반도체공학과"
+      mobility: "미래모빌리티공학과"
+      # 소프트웨어융합대학
+      media: "디지털미디어학과"
+      software: "소프트웨어학과"
+      mdc: "국방디지털융합학과"
+      security: "사이버보안학과"
+      aai: "인공지능융합학과"
+      # 자연과학대학
+      math: "수학과"
+      chem: "화학과"
+      physics: "물리학과"
+      biology: "생명과학과"
+      frontiers: "프런티어과학학부"
+      # 경영대학
+      abiz: "경영학과"
+      fe: "금융공학과"
+      ebiz: "경영인텔리전스학과"
+      gb: "글로벌경영학과"
+      # 인문대학
+      kor: "국어국문학과"
+      history: "사학과"
+      english: "영어영문학과"
+      culture: "문화콘텐츠학과"
+      france: "불어불문학과"
+      # 사회과학대학
+      econ: "경제학과"
+      soci: "사회학과"
+      pba: "행정학과"
+      pol: "정치외교학과"
+      apsy: "심리학과"
+      slez: "스포츠레저학과"
+      eps: "경제정치사회융합학부"
+      # 의과대학
+      medicine: "의학과"
+      # 간호대학
+      nursing: "간호학과"
+      # 약학대학
+      pharm: "약학과"
+      # 첨단바이오융합대학
+      ibio: "첨단바이오융합대학"
+      # 다산학부대학
+      uc: "다산학부대학"
+      pre: "자유전공학부"
+      # 국제학부
+      isa: "국제학부"

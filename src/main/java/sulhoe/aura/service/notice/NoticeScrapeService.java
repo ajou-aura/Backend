@@ -13,166 +13,311 @@ import org.springframework.stereotype.Service;
 import sulhoe.aura.config.NoticeConfig;
 import sulhoe.aura.entity.Notice;
 import sulhoe.aura.repository.NoticeRepository;
-import sulhoe.aura.service.firebase.PushNotificationService;
 import sulhoe.aura.service.notice.parser.NoticeParser;
 
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import sulhoe.aura.service.keyword.KeywordService;
+import java.net.SocketTimeoutException;
+import java.util.concurrent.ThreadLocalRandom;
 
 @Service
 @RequiredArgsConstructor
 public class NoticeScrapeService {
     private static final Logger logger = LoggerFactory.getLogger(NoticeScrapeService.class);
 
-    private static final int DEFAULT_TIMEOUT_MS = 15_000;
-    private static final int MAX_PAGES_CAP = 50;
+    private static final int DEFAULT_TIMEOUT_MS = 30_000;
+    private static final int RETRIES = 4;
+    private static final int BASE_BACKOFF_MS = 600;
+    private static final int MAX_BACKOFF_MS = 6_000;
+
+    // incremental 모드 시 최대 페이지만 제한
+    private static final int INCREMENTAL_MAX_PAGES = 5;
+
+    // 저장/팬아웃 청크 크기
+    private static final int CHUNK_SIZE = 100;
 
     private final NoticeConfig noticeConfig;
     private final ApplicationContext ctx;
-    private final PushNotificationService push;
     private final NoticeRepository repo;
     private final NoticePersistenceService persistence;
+    private final KeywordService keywordService;
+    private final NoticeFanoutService fanoutService; // 팬아웃을 REQUIRES_NEW로 분리
 
-    public void scrapeNotices(String url, String type) throws IOException {
-        boolean fullLoad = !repo.existsByType(type);
-        logger.info("[{}] scrapeNotices: fullLoad={}", type, fullLoad);
-        logger.info("[Info] Start scraping: {}", url);
+    private static int jitterBackoff(int attempt, int base, int max) {
+        long exp = (long) (base * Math.pow(2, attempt - 1));
+        long cap = Math.min(exp, max);
+        int jitter = ThreadLocalRandom.current().nextInt((int) (cap * 0.4) + 1);
+        return (int) (cap - jitter);
+    }
 
-        // 1) 파서 선택
-        String parserBean = noticeConfig.getParser().getOrDefault(type, noticeConfig.getParser().get("default"));
-        logger.info("[Info] Parser: {}", parserBean);
-        NoticeParser parser = ctx.getBean(parserBean, NoticeParser.class);
+    /** 최상위에서 예외 전파하지 않음(스케줄러 계속 순회) */
+    public void scrapeNotices(String url, String type) {
+        try {
+            boolean fullLoad = shouldDoFullLoad(type);
+            logger.info("[{}] ========== SCRAPE START: fullLoad={} ==========", type, fullLoad);
 
-        List<Notice> scraped = new ArrayList<>();
+            String parserBean = noticeConfig.getParser()
+                    .getOrDefault(type, noticeConfig.getParser().get("default"));
+            NoticeParser parser = ctx.getBean(parserBean, NoticeParser.class);
 
-        // 2) 첫 페이지(고정 공지)
-        Document doc = fetchWithLog(url, type + ":first");
-        Elements fixedRows = parser.selectFixedRows(doc);
-        logger.info("[{}] fixedRows={}", type, fixedRows.size());
+            // 버퍼(100건 단위로 flush)
+            List<Notice> buffer = new ArrayList<>(CHUNK_SIZE);
 
-        for (Element row : fixedRows) {
-            try {
-                Notice n = parser.parseRow(row, true, url);
-                n.setType(type);
-                scraped.add(n);
-            } catch (Exception ex) {
-                logger.warn("[{}] fixed row parse failed: {}\nRowHTML={}", type, ex.toString(), row.outerHtml());
+            // 1) 첫 페이지 고정 공지
+            Document doc = fetchWithLog(url, type + ":first");
+            if (doc == null) {
+                logger.warn("[{}] 첫 페이지 fetch 실패 → 이 타입은 이번 라운드 건너뜀", type);
+                return;
             }
-        }
+            Elements fixedRows = parser.selectFixedRows(doc);
+            logger.info("[{}] Fixed notices: {}", type, fixedRows.size());
 
-        // 문제 유형 HTML 샘플 1회 저장
-        dumpOnce(type, 0, doc);
-
-        // 3) 일반 페이지 루프
-        int pageIdx = 0;
-        int step = parser.getStep();
-        int pagesFetched = 0;
-
-        while (true) {
-            String pagedUrl = parser.buildPageUrl(url, pageIdx);
-            logger.info("[{}] Scraping page: {}", type, pagedUrl);
-
-            Document pagedDoc = fetchWithLog(pagedUrl, type + ":page-" + pageIdx);
-            Elements generalRows = parser.selectGeneralRows(pagedDoc);
-            logger.info("[{}] generalRows(pageIdx={})={}", type, pageIdx, generalRows.size());
-
-            if (generalRows.isEmpty()) {
-                logger.info("[{}] No more rows at pageIdx {}; breaking.", type, pageIdx);
-                break;
-            }
-
-            for (Element row : generalRows) {
+            for (Element row : fixedRows) {
                 try {
-                    Notice n = parser.parseRow(row, false, url);
+                    Notice n = parser.parseRow(row, true, url);
                     n.setType(type);
-                    scraped.add(n);
+                    buffer.add(n);
+                    if (buffer.size() >= CHUNK_SIZE) {
+                        flushChunk(buffer, type);
+                    }
                 } catch (Exception ex) {
-                    logger.warn("[{}] general row parse failed (pageIdx={}): {}\nRowHTML={}",
-                            type, pageIdx, ex.toString(), row.outerHtml());
+                    logger.warn("[{}] Fixed row parse failed: {}", type, ex.toString());
+                }
+            }
+            dumpOnce(type, 0, doc);
+
+            // 2) 일반 페이지 루프
+            int pageIdx = 0;
+            int step = parser.getStep();
+            int pagesFetched = 0;
+            int consecutiveEmptyPages = 0;
+            int consecutiveDuplicatePages = 0;
+
+            while (true) {
+                String pagedUrl = parser.buildPageUrl(url, pageIdx);
+                logger.debug("[{}] Fetching page {} (index: {})", type, pagesFetched + 1, pageIdx);
+
+                Document pagedDoc = fetchWithLog(pagedUrl, type + ":page-" + pageIdx);
+                if (pagedDoc == null) {
+                    logger.warn("[{}] 페이지 fetch 실패(pageIdx={}): 다음 페이지로 계속", type, pageIdx);
+                    pagesFetched++;
+                    pageIdx += step;
+                    continue;
+                }
+                Elements generalRows = parser.selectGeneralRows(pagedDoc);
+
+                // 종료 조건 1: 빈 페이지 연속 2회
+                if (generalRows.isEmpty()) {
+                    consecutiveEmptyPages++;
+                    logger.debug("[{}] Empty page (consecutive: {})", type, consecutiveEmptyPages);
+                    if (consecutiveEmptyPages >= 2) {
+                        logger.info("[{}] ✓ End: 2 consecutive empty pages", type);
+                        break;
+                    }
+                    pageIdx += step;
+                    pagesFetched++;
+                    continue;
+                }
+
+                consecutiveEmptyPages = 0;
+                int pageNewCount = 0;
+                int pageDuplicateCount = 0;
+
+                // 행 파싱(페이지 보호막과 별개로 행 단위 방어)
+                try {
+                    for (Element row : generalRows) {
+                        try {
+                            Notice n = parser.parseRow(row, false, url);
+                            n.setType(type);
+
+                            // 중복 체크
+                            if (repo.existsByLink(n.getLink())) {
+                                pageDuplicateCount++;
+                                continue;
+                            }
+
+                            buffer.add(n);
+                            pageNewCount++;
+                            if (buffer.size() >= CHUNK_SIZE) {
+                                flushChunk(buffer, type);
+                            }
+                        } catch (Exception ex) {
+                            logger.warn("[{}] Row parse failed (page {}): {}", type, pagesFetched + 1, ex.toString());
+                        }
+                    }
+                } catch (Exception pageEx) {
+                    logger.warn("[{}] Page-level parse error (page {}): {}", type, pagesFetched + 1, pageEx.toString());
+                }
+
+                if (pagesFetched == 0) dumpOnce(type, 0, pagedDoc);
+
+                pagesFetched++;
+                pageIdx += step;
+
+                logger.info("[{}] Page {}: {} new, {} duplicate (buffer now: {})",
+                        type, pagesFetched, pageNewCount, pageDuplicateCount, buffer.size());
+
+                // 종료 조건 2: 증분 모드 페이지 제한
+                if (!fullLoad && pagesFetched >= INCREMENTAL_MAX_PAGES) {
+                    logger.info("[{}] End: Incremental max pages ({})", type, INCREMENTAL_MAX_PAGES);
+                    break;
+                }
+
+                // 종료 조건 3: 연속 중복 페이지
+                if (pageNewCount == 0 && pageDuplicateCount > 0) {
+                    consecutiveDuplicatePages++;
+                    if (!fullLoad && consecutiveDuplicatePages >= 2) {
+                        logger.info("[{}] End: 2 consecutive duplicate pages (incremental)", type);
+                        break;
+                    }
+                    if (fullLoad && consecutiveDuplicatePages >= 5) {
+                        logger.info("[{}] End: 5 consecutive duplicate pages (full load)", type);
+                        break;
+                    }
+                } else {
+                    consecutiveDuplicatePages = 0;
+                }
+
+                // 종료 조건 4: 마지막 페이지 휴리스틱(fullLoad만)
+                if (fullLoad) {
+                    int expectedPageSize = step == 1 ? 10 : step;
+                    if (generalRows.size() < expectedPageSize) {
+                        logger.info("[{}] End: Last page heuristic (rows={} < expected={})",
+                                type, generalRows.size(), expectedPageSize);
+                        break;
+                    }
                 }
             }
 
-            // 첫 페이지 샘플 저장(문제 유형만)
-            if (pagesFetched == 0) dumpOnce(type, 0, pagedDoc);
+            // 남은 버퍼 flush
+            if (!buffer.isEmpty()) flushChunk(buffer, type);
 
-            pagesFetched++;
-            pageIdx += step;
-
-            if (pagesFetched >= MAX_PAGES_CAP) {
-                logger.warn("[{}] Page cap({}) reached. Breaking.", type, MAX_PAGES_CAP);
-                break;
-            }
-
-            if (!fullLoad && pagesFetched >= 3) { // 운영 중엔 3 페이지만
-                logger.info("[{}] Not fullLoad; only first pages fetched ({} pages). Breaking.", type, pagesFetched);
-                break;
-            }
-
-            // 마지막 페이지 휴리스틱(가져온 행 수가 step 미만이면 종료)
-            if (fullLoad && generalRows.size() < step) {
-                logger.info("[{}] Last page detected (rows < step). Breaking.", type);
-                break;
-            }
-        }
-
-        // 4) 작성일 별도 조회
-        if (noticeConfig.getCategoriesRequirePostedDate().contains(type)) {
-            for (Notice n : scraped) {
-                n.setDate(fetchPostedDate(n.getLink()));
-            }
-        }
-
-        // 5) DB 저장
-        List<Notice> newOrUpdated = persistence.persistNotices(scraped);
-        logger.info("[{}] New/Updated count: {}", type, newOrUpdated.size());
-
-        // 6) 운영 중 알림(비활성화 상태 유지)
-        if (!fullLoad && !newOrUpdated.isEmpty()) {
-            // push.sendPushNotification(NoticeDto.toDtoList(newOrUpdated), type);
+            logger.info("[{}] ========== SCRAPE END ==========", type);
+        } catch (Exception e) {
+            logger.error("[{}] scrapeNotices unexpected error (swallowed to continue schedule)", type, e);
         }
     }
 
+    /** fullLoad 여부 판단 */
+    private boolean shouldDoFullLoad(String type) {
+        if (!repo.existsByType(type)) {
+            logger.info("[{}] No data exists → Full load", type);
+            return true;
+        }
+        java.time.LocalDateTime sevenDaysAgo = java.time.LocalDateTime.now().minusDays(7);
+        long recentCount = repo.countByTypeAndCreatedAtAfter(type, sevenDaysAgo);
+        if (recentCount == 0) {
+            logger.info("[{}] No recent data (7 days) → Full load", type);
+            return true;
+        }
+        logger.info("[{}] {} recent notices exist → Incremental load", type, recentCount);
+        return false;
+    }
+
+    /** 상세 페이지의 작성일 보강(실패 시 Unknown) */
     private String fetchPostedDate(String link) {
         try {
             Document detailDoc = fetchWithLog(link, "detail");
+            if (detailDoc == null) return "Unknown";
             Element dateElement = detailDoc.selectFirst("li.b-date-box span:contains(작성일) + span");
             return dateElement != null ? dateElement.text() : "Unknown";
-        } catch (IOException e) {
+        } catch (Exception e) {
             logger.error("fetchPostedDate failed: {}", link, e);
             return "Unknown";
         }
     }
 
-    // Jsoup 공통 페치 & 로깅
-    private Document fetchWithLog(String url, String tag) throws IOException {
-        Connection conn = Jsoup.connect(url)
-                .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                        + "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
-                .referrer("https://www.google.com/")
-                .timeout(DEFAULT_TIMEOUT_MS)
-                .followRedirects(true)
-                .ignoreHttpErrors(true);
+    /** 실패 시 null 반환(예외 전파 X) */
+    private Document fetchWithLog(String url, String tag) {
+        Exception last = null;
+        for (int attempt = 1; attempt <= RETRIES; attempt++) {
+            try {
+                Connection conn = Jsoup.connect(url)
+                        .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                        .referrer("https://www.google.com/")
+                        .timeout(DEFAULT_TIMEOUT_MS)
+                        .followRedirects(true)
+                        .ignoreHttpErrors(true)
+                        .maxBodySize(0)
+                        .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+                        .header("Accept-Encoding", "gzip,deflate,br")
+                        .header("Accept-Language", "ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7");
 
-        Connection.Response resp = conn.execute();
-        logger.info("[fetch:{}] GET {} -> status={}, contentType={}, finalUrl={}",
-                tag, url, resp.statusCode(), resp.contentType(), resp.url());
-        return resp.parse();
+                Connection.Response resp = conn.execute();
+                byte[] body = resp.bodyAsBytes(); // 사이드이펙트: 실제 바디 로드
+                logger.debug("[fetch:{}] GET {} → {} ({} bytes)", tag, url, resp.statusCode(), body.length);
+                return resp.parse();
+            } catch (SocketTimeoutException e) {
+                last = e;
+                logger.warn("[fetch:{}] Timeout (attempt {}/{})", tag, attempt, RETRIES);
+            } catch (Exception e) {
+                last = e;
+                logger.warn("[fetch:{}] Error (attempt {}/{}): {}", tag, attempt, RETRIES, e.toString());
+            }
+
+            int backoff = jitterBackoff(attempt, BASE_BACKOFF_MS, MAX_BACKOFF_MS);
+            try {
+                Thread.sleep(backoff);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                logger.warn("[fetch:{}] Interrupted during backoff", tag);
+                return null;
+            }
+        }
+        logger.error("[fetch:{}] all retries failed: {} (last={})", tag, url, last != null ? last.toString() : "n/a");
+        return null;
     }
 
     private void dumpOnce(String type, int pageIdx, Document doc) {
-        // 문제 발생 유형만 샘플 저장: medicine/nursing/software
         if (!(type.endsWith(".medicine") || type.endsWith(".nursing") || type.endsWith(".software"))) return;
         try {
+            if (doc == null) return;
             Path p = Path.of("/tmp/scrape-" + type.replace('.', '-') + "-p" + pageIdx + ".html");
             if (!Files.exists(p)) {
                 Files.writeString(p, doc.outerHtml());
-                logger.info("[{}] Saved sample: {}", type, p);
+                logger.debug("[{}] Saved sample: {}", type, p);
             }
         } catch (Exception e) {
-            logger.warn("[{}] Failed to save sample html: {}", type, e.toString());
+            logger.error("[{}] Failed to save sample: {}", type, e.toString());
+        }
+    }
+
+    /** 버퍼(최대 100건)를 저장/팬아웃까지 처리 */
+    private void flushChunk(List<Notice> buffer, String type) {
+        if (buffer.isEmpty()) return;
+        List<Notice> chunk = new ArrayList<>(buffer);
+        buffer.clear();
+
+        // 1) (옵션) 작성일 보강
+        if (noticeConfig.getCategoriesRequirePostedDate().contains(type)) {
+            for (Notice n : chunk) {
+                try {
+                    n.setDate(fetchPostedDate(n.getLink()));
+                } catch (Exception e) {
+                    logger.debug("[{}] posted-date enrich skipped for link={} ({})", type, n.getLink(), e.toString());
+                }
+            }
+        }
+
+        // 2) 저장(배치 실패해도 단건 진행되도록 내부에서 fail-soft)
+        List<Notice> newOrUpdated;
+        try {
+            newOrUpdated = persistence.persistNotices(chunk);
+            logger.info("[{}] CHUNK persisted: {} new/updated out of {}", type, newOrUpdated.size(), chunk.size());
+        } catch (Exception e) {
+            logger.error("[{}] CHUNK persist failed (skip this chunk): {}", type, e.toString(), e);
+            return; // 저장 실패 시 팬아웃도 건너뜀
+        }
+
+        // 3) 팬아웃(새 트랜잭션, 실패해도 다음 항목/청크 진행)
+        try {
+            fanoutService.sendNotifications(newOrUpdated, type);
+        } catch (Exception e) {
+            // REQUIRES_NEW에서의 예외는 여기까지 오지 않는 것이 보통이지만 방어적으로 기록
+            logger.error("[{}] fanout batch failed: {}", type, e.toString(), e);
         }
     }
 }

@@ -1,17 +1,18 @@
 package sulhoe.aura.service.login;
 
-import io.jsonwebtoken.JwtException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import sulhoe.aura.config.JwtTokenProvider;
 import sulhoe.aura.dto.notice.NoticeDto;
 import sulhoe.aura.dto.user.UserResponseDto;
 import sulhoe.aura.entity.Notice;
 import sulhoe.aura.entity.User;
+import sulhoe.aura.handler.ApiException;
 import sulhoe.aura.repository.NoticeRepository;
 import sulhoe.aura.repository.UserRepository;
+import sulhoe.aura.service.keyword.KeywordService;
 
 import java.util.List;
 import java.util.Set;
@@ -23,6 +24,7 @@ import java.util.UUID;
 public class UserService {
     private final UserRepository userRepository;
     private final NoticeRepository noticeRepository;
+    private final KeywordService keywordService;
 
     @Transactional(readOnly = true)
     public UserResponseDto getUserInfoByEmail(String email) {
@@ -41,7 +43,18 @@ public class UserService {
     @Transactional
     public void addDepartmentByEmail(String email, String dept) {
         User user = findUserByEmail(email);
-        boolean added = user.getDepartments().add(dept);
+        // 공백/대소문자 정규화로 의도치 않은 중복 방지
+        String normalized = dept == null ? null : dept.trim();
+
+        boolean added = user.getDepartments().add(normalized);
+        if (!added) {
+            throw new ApiException(
+                    HttpStatus.CONFLICT,
+                    "이미 등록된 학과입니다.",
+                    "DEPARTMENT_ALREADY_EXISTS",
+                    "dept"
+            );
+        }
         userRepository.save(user);
         log.info("[SVC][DEPTS] 추가: email={}, dept={}, added={}", email, dept, added);
     }
@@ -49,9 +62,17 @@ public class UserService {
     @Transactional
     public void removeDepartmentByEmail(String email, String dept) {
         User user = findUserByEmail(email);
-        boolean removed = user.getDepartments().remove(dept);
+        // 추가 시 trim 정규화를 했으므로 삭제도 동일 규칙 적용
+        String normalized = (dept == null) ? null : dept.trim();
+        boolean removed = user.getDepartments().remove(normalized);
         userRepository.save(user);
-        log.info("[SVC][DEPTS] 삭제: email={}, dept={}, removed={}", email, dept, removed);
+        log.info("[SVC][DEPTS] 삭제: email={}, dept={}, removed={}", email, normalized, removed);
+
+        // 실제로 학과가 제거되었을 때만 해당 type 구독 전체 정리
+        if (removed) {
+            // 학과 문자열 == type 키로 사용 중이라는 전제
+            keywordService.removeAllSubscriptionsForType(user.getId(), normalized);
+        }
     }
 
     @Transactional
@@ -82,12 +103,24 @@ public class UserService {
         return list;
     }
 
-    /** 공통: 이메일로 사용자 조회 + 로그 */
+    private String normalizeEmail(String email) {
+        return email == null ? null : email.trim().toLowerCase(java.util.Locale.ROOT);
+    }
+
+    /**
+     * 공통: 이메일로 사용자 조회 + 로그
+     */
     private User findUserByEmail(String email) {
-        return userRepository.findByEmail(email)
+        final String norm = normalizeEmail(email);
+        return userRepository.findByEmailIgnoreCase(norm)
                 .orElseThrow(() -> {
                     log.warn("[SVC][USER] 미존재: email={}", email);
-                    return new IllegalArgumentException("사용자를 찾을 수 없습니다: " + email);
+                    return new sulhoe.aura.handler.ApiException(
+                            org.springframework.http.HttpStatus.NOT_FOUND,
+                            "사용자를 찾을 수 없습니다: " + norm,
+                            "USER_NOT_FOUND",
+                            "email"
+                    );
                 });
     }
 }

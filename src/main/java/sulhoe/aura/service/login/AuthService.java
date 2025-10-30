@@ -3,11 +3,13 @@ package sulhoe.aura.service.login;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import sulhoe.aura.config.JwtTokenProvider;
 import sulhoe.aura.dto.login.LoginResponseDto;
 import sulhoe.aura.entity.User;
+import sulhoe.aura.handler.ApiException;
 import sulhoe.aura.repository.UserRepository;
 
 import java.util.HashSet;
@@ -37,7 +39,9 @@ public class AuthService {
         if (isSignUp) {
             // 신규 가입
             Set<String> depts = new HashSet<>();
-            depts.add(info.department());
+            if (info.department() != null && !info.department().isBlank()) {
+                depts.add(info.department());
+            }
 
             user = new User(
                     info.name(),
@@ -54,20 +58,14 @@ public class AuthService {
             user = optUser.get();
             // 이름이 바뀌었을 수도 있으니 업데이트
             user.setName(info.name());
+            // 항상 새 RT 발급 (기존 만료/임박 체크 제거)
+            user.setRefreshToken(jwtTokenProvider.createRefreshToken(info.email()));
             user = userRepository.save(user);
             log.debug("[AUTH] Existing user updated");
         }
 
-
         String access  = jwtTokenProvider.createAccessToken(user.getEmail(), user.getName());
         String refresh = user.getRefreshToken();
-
-        log.debug("[AUTH] Tokens issued: access.length={} refresh.length={}",
-                access.length(), refresh.length());
-
-        // 리프레시 토큰 저장 및 회전 초기화
-        user.setRefreshToken(refresh);
-        userRepository.save(user);
 
         return new LoginResponseDto(access, refresh, isSignUp);
     }
@@ -77,27 +75,94 @@ public class AuthService {
         log.debug("[AUTH] refreshAccessToken, refreshToken={}", refreshToken);
 
         if (!jwtTokenProvider.validateToken(refreshToken)) {
-            throw new RuntimeException("Invalid refresh token");
+            throw new ApiException(
+                    HttpStatus.UNAUTHORIZED,
+                    "토큰이 유효하지 않거나 만료되었습니다.",
+                    "INVALID_REFRESH_TOKEN",
+                    "refreshToken"
+            );
         }
         String email = jwtTokenProvider.getEmail(refreshToken);
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new RuntimeException("User not found: " + email));
+        User user = userRepository.findByEmail(email).orElseThrow(() ->
+                new ApiException(HttpStatus.NOT_FOUND, "대상을 찾을 수 없습니다.", "NOT_FOUND", "email"));
         log.debug("[AUTH] Refreshing for user: {}", email);
 
         // DB 저장 토큰과 일치 여부 검사
         if (!refreshToken.equals(user.getRefreshToken())) {
-            throw new RuntimeException("Refresh token mismatch");
+            throw new ApiException(
+                    HttpStatus.UNAUTHORIZED,
+                    "리프레시 토큰이 일치하지 않습니다.",
+                    "REFRESH_TOKEN_MISMATCH",
+                    "refreshToken"
+            );
         }
 
         // 토큰 회전: 새로운 리프레시 토큰 발급
         String newRefresh = jwtTokenProvider.createRefreshToken(email);
-        user.setRefreshToken(newRefresh);
-        userRepository.save(user);
+
+        // === 원자적 회전: old==현재값 일 때만 new로 교체 ===
+        int updated = userRepository.rotateRefreshTokenAtomically(email, refreshToken, newRefresh);
+        if (updated != 1) { // 0이면 동시 회전/재사용 등으로 이미 값이 바뀐 상황
+            throw new ApiException(
+                    HttpStatus.UNAUTHORIZED,
+                    "리프레시 토큰이 이미 회전되었습니다.",
+                    "REFRESH_TOKEN_RACE",
+                    "refreshToken"
+            );
+        }
 
         String newAccess = jwtTokenProvider.createAccessToken(
                 user.getEmail(), user.getName());
         log.debug("[AUTH] New access token length: {}", newAccess.length());
 
         return new LoginResponseDto(newAccess, newRefresh, false);
+    }
+
+    @Transactional
+    public String ssoRefresh(String email) {
+        var user = userRepository.findByEmail(email).orElseThrow(() ->
+                new ApiException(HttpStatus.NOT_FOUND, "대상을 찾을 수 없습니다.", "NOT_FOUND", "email"));
+
+        String newRefresh = jwtTokenProvider.createRefreshToken(email);
+        // 단일 RT 구조: 새 RT로 교체(기존 RT 무효화)
+        user.setRefreshToken(newRefresh);
+        userRepository.save(user);
+
+        log.debug("[AUTH] Issued new refresh for web SSO, user={}", email);
+        return newRefresh;
+    }
+
+    /**
+     * 리프레시 토큰 무효화 (로그아웃용)
+     * DB에 저장된 리프레시 토큰을 null로 설정
+     */
+    @Transactional
+    public void revokeRefreshToken(String refreshToken) {
+        log.debug("[AUTH] revokeRefreshToken called");
+
+        // 토큰 검증 (만료되었어도 이메일 추출은 가능)
+        String email;
+        try {
+            email = jwtTokenProvider.getEmail(refreshToken);
+        } catch (Exception e) {
+            log.warn("[AUTH] Failed to extract email from token: {}", e.getMessage());
+            // 토큰 파싱 실패해도 조용히 처리 (이미 만료된 경우 등)
+            return;
+        }
+
+        User user = userRepository.findByEmail(email).orElse(null);
+        if (user == null) {
+            log.warn("[AUTH] User not found for email: {}", email);
+            return;
+        }
+
+        // DB의 토큰과 일치하는지 확인 후 무효화
+        if (refreshToken.equals(user.getRefreshToken())) {
+            user.setRefreshToken(null);
+            userRepository.save(user);
+            log.info("[AUTH] Revoked refresh token for user: {}", email);
+        } else {
+            log.debug("[AUTH] Token mismatch, already rotated or revoked");
+        }
     }
 }

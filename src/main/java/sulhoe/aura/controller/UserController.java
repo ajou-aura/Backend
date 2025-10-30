@@ -26,7 +26,7 @@ import java.util.UUID;
 public class UserController {
     private final UserService userService;
 
-    /** JwtAuthenticationFilter가 principal(Map<email,name>)을 넣어줌 */
+    // JwtAuthenticationFilter가 principal(Map<email,name>)을 넣어줌
     private String currentEmail() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth == null || !auth.isAuthenticated()) {
@@ -46,9 +46,9 @@ public class UserController {
     @GetMapping("/info")
     public ResponseEntity<ApiResponse<UserResponseDto>> userInfo() {
         String email = currentEmail();
-        log.debug("[USER-INFO] 호출: email={}", email);
+        log.info("[USER-INFO] 호출: email={}", email);
         UserResponseDto dto = userService.getUserInfoByEmail(email);
-        log.debug("[USER-INFO] 조회 성공: {}", dto.email());
+        log.info("[USER-INFO] 조회 성공: {}", dto.email());
         return ResponseEntity.ok(ApiResponse.success(dto));
     }
 
@@ -56,7 +56,7 @@ public class UserController {
     @GetMapping("/departments")
     public ResponseEntity<ApiResponse<Set<String>>> getDepartments() {
         String email = currentEmail();
-        log.debug("[DEPTS] 목록 조회: email={}", email);
+        log.info("[DEPTS] 목록 조회: email={}", email);
         return ResponseEntity.ok(ApiResponse.success(userService.getDepartmentsByEmail(email)));
     }
 
@@ -64,7 +64,7 @@ public class UserController {
     @PostMapping("/departments")
     public ResponseEntity<ApiResponse<Void>> addDepartment(@RequestBody DepartmentRequestDto dto) {
         String email = currentEmail();
-        log.debug("[DEPTS] 추가 요청: email={}, dept={}", email, dto.department());
+        log.info("[DEPTS] 추가 요청: email={}, dept={}", email, dto.department());
         userService.addDepartmentByEmail(email, dto.department());
         return ResponseEntity.ok(ApiResponse.success(null));
     }
@@ -73,7 +73,7 @@ public class UserController {
     @DeleteMapping("/departments")
     public ResponseEntity<ApiResponse<Void>> removeDepartment(@RequestBody DepartmentRequestDto dto) {
         String email = currentEmail();
-        log.debug("[DEPTS] 삭제 요청: email={}, dept={}", email, dto.department());
+        log.info("[DEPTS] 삭제 요청: email={}, dept={}", email, dto.department());
         userService.removeDepartmentByEmail(email, dto.department());
         return ResponseEntity.ok(ApiResponse.success(null));
     }
@@ -82,7 +82,7 @@ public class UserController {
     @PostMapping("/saved-notices/{id}")
     public ResponseEntity<ApiResponse<Void>> saveNotice(@PathVariable("id") UUID noticeId) {
         String email = currentEmail();
-        log.debug("[BOOKMARK] 추가 요청: email={}, noticeId={}", email, noticeId);
+        log.info("[BOOKMARK] 추가 요청: email={}, noticeId={}", email, noticeId);
         userService.saveNoticeByEmail(email, noticeId);
         return ResponseEntity.ok(ApiResponse.success(null));
     }
@@ -91,7 +91,7 @@ public class UserController {
     @DeleteMapping("/saved-notices/{id}")
     public ResponseEntity<ApiResponse<Void>> removeSavedNotice(@PathVariable("id") UUID noticeId) {
         String email = currentEmail();
-        log.debug("[BOOKMARK] 삭제 요청: email={}, noticeId={}", email, noticeId);
+        log.info("[BOOKMARK] 삭제 요청: email={}, noticeId={}", email, noticeId);
         userService.removeSavedNoticeByEmail(email, noticeId);
         return ResponseEntity.ok(ApiResponse.success(null));
     }
@@ -100,9 +100,9 @@ public class UserController {
     @GetMapping("/saved-notices")
     public ResponseEntity<ApiResponse<List<NoticeDto>>> getSavedNotices() {
         String email = currentEmail();
-        log.debug("[BOOKMARK] 목록 조회: email={}", email);
+        log.info("[BOOKMARK] 목록 조회: email={}", email);
         List<NoticeDto> list = userService.getSavedNoticesByEmail(email);
-        log.debug("[BOOKMARK] 조회 결과: {}건", list.size());
+        log.info("[BOOKMARK] 조회 결과: {}건", list.size());
         return ResponseEntity.ok(ApiResponse.success(list));
     }
 }

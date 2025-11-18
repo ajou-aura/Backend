@@ -19,9 +19,9 @@ public class JwtTokenProvider {
     private String secretKey;              // application.properties 에서 Base64로 인코딩된 키
 
     private SecretKey signingKey;
-    private static final long ACCESS_EXP  = 1000L * 60 * 60;        // 1시간
+    private static final long ACCESS_EXP  = 1000L * 60 * 60 * 24;        // 1일
 
-    public static final long WEB_ACCESS_EXP = 1000L * 60 * 60;
+    public static final long WEB_ACCESS_EXP = 1000L * 60 * 60 * 24;
     public static final long WEB_ACCESS_EXPIRY_SECONDS = WEB_ACCESS_EXP / 1000;
 
     private static final long REFRESH_EXP = 1000L * 60 * 60 * 24;   // 1일

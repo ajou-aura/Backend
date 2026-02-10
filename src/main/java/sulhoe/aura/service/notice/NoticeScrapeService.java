@@ -13,14 +13,16 @@ import org.springframework.stereotype.Service;
 import sulhoe.aura.config.NoticeConfig;
 import sulhoe.aura.entity.Notice;
 import sulhoe.aura.repository.NoticeRepository;
+import sulhoe.aura.service.keyword.KeywordService;
 import sulhoe.aura.service.notice.parser.NoticeParser;
 
+import java.net.SocketTimeoutException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
-import sulhoe.aura.service.keyword.KeywordService;
-import java.net.SocketTimeoutException;
+import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
 
 @Service
@@ -33,8 +35,11 @@ public class NoticeScrapeService {
     private static final int BASE_BACKOFF_MS = 600;
     private static final int MAX_BACKOFF_MS = 6_000;
 
-    // incremental 모드 시 최대 페이지만 제한
-    private static final int INCREMENTAL_MAX_PAGES = 5;
+    // DB에 없는 공지를 모두 채우는(backfill) 모드 강제 여부
+    private static final boolean FORCE_BACKFILL_MISSING = true;
+
+    // 무한루프 방지(사이트가 마지막 페이지에서 같은 목록을 계속 반환하는 경우 등)
+    private static final int MAX_TOTAL_PAGES_FAILSAFE = 5000;
 
     // 저장/팬아웃 청크 크기
     private static final int CHUNK_SIZE = 100;
@@ -56,8 +61,11 @@ public class NoticeScrapeService {
     /** 최상위에서 예외 전파하지 않음(스케줄러 계속 순회) */
     public void scrapeNotices(String url, String type) {
         try {
-            boolean fullLoad = shouldDoFullLoad(type);
-            logger.info("[{}] ========== SCRAPE START: fullLoad={} ==========", type, fullLoad);
+            boolean backfillMissing = FORCE_BACKFILL_MISSING;
+            boolean fullLoad = backfillMissing || shouldDoFullLoad(type);
+
+            logger.info("[{}] ========== SCRAPE START: fullLoad={}, backfillMissing={} ==========",
+                    type, fullLoad, backfillMissing);
 
             String parserBean = noticeConfig.getParser()
                     .getOrDefault(type, noticeConfig.getParser().get("default"));
@@ -79,6 +87,12 @@ public class NoticeScrapeService {
                 try {
                     Notice n = parser.parseRow(row, true, url);
                     n.setType(type);
+
+                    // DB에 없는 공지만 저장 (고정공지도 동일)
+                    if (repo.existsByLink(n.getLink())) {
+                        continue;
+                    }
+
                     buffer.add(n);
                     if (buffer.size() >= CHUNK_SIZE) {
                         flushChunk(buffer, type);
@@ -94,7 +108,9 @@ public class NoticeScrapeService {
             int step = parser.getStep();
             int pagesFetched = 0;
             int consecutiveEmptyPages = 0;
-            int consecutiveDuplicatePages = 0;
+
+            // 같은 페이지 반복 감지용 지문(무한루프 방지)
+            Set<String> pageFingerprints = new HashSet<>();
 
             while (true) {
                 String pagedUrl = parser.buildPageUrl(url, pageIdx);
@@ -107,6 +123,7 @@ public class NoticeScrapeService {
                     pageIdx += step;
                     continue;
                 }
+
                 Elements generalRows = parser.selectGeneralRows(pagedDoc);
 
                 // 종료 조건 1: 빈 페이지 연속 2회
@@ -126,6 +143,10 @@ public class NoticeScrapeService {
                 int pageNewCount = 0;
                 int pageDuplicateCount = 0;
 
+                // 페이지 지문(첫/마지막 링크 + row 수)
+                String firstLink = null;
+                String lastLink = null;
+
                 // 행 파싱(페이지 보호막과 별개로 행 단위 방어)
                 try {
                     for (Element row : generalRows) {
@@ -133,7 +154,10 @@ public class NoticeScrapeService {
                             Notice n = parser.parseRow(row, false, url);
                             n.setType(type);
 
-                            // 중복 체크
+                            if (firstLink == null) firstLink = n.getLink();
+                            lastLink = n.getLink();
+
+                            // DB에 없는 공지만 저장
                             if (repo.existsByLink(n.getLink())) {
                                 pageDuplicateCount++;
                                 continue;
@@ -141,6 +165,7 @@ public class NoticeScrapeService {
 
                             buffer.add(n);
                             pageNewCount++;
+
                             if (buffer.size() >= CHUNK_SIZE) {
                                 flushChunk(buffer, type);
                             }
@@ -160,28 +185,22 @@ public class NoticeScrapeService {
                 logger.info("[{}] Page {}: {} new, {} duplicate (buffer now: {})",
                         type, pagesFetched, pageNewCount, pageDuplicateCount, buffer.size());
 
-                // 종료 조건 2: 증분 모드 페이지 제한
-                if (!fullLoad && pagesFetched >= INCREMENTAL_MAX_PAGES) {
-                    logger.info("[{}] End: Incremental max pages ({})", type, INCREMENTAL_MAX_PAGES);
+                // 종료 조건 2: 같은 페이지 반복 감지(무한루프 방지)
+                if (firstLink != null && lastLink != null) {
+                    String fp = generalRows.size() + "|" + firstLink + "|" + lastLink;
+                    if (!pageFingerprints.add(fp)) {
+                        logger.info("[{}] ✓ End: repeated page fingerprint (possible last-page loop)", type);
+                        break;
+                    }
+                }
+
+                // 종료 조건 3: 전체 페이지 failsafe
+                if (pagesFetched >= MAX_TOTAL_PAGES_FAILSAFE) {
+                    logger.warn("[{}] ⚠ End: MAX_TOTAL_PAGES_FAILSAFE reached ({})", type, MAX_TOTAL_PAGES_FAILSAFE);
                     break;
                 }
 
-                // 종료 조건 3: 연속 중복 페이지
-                if (pageNewCount == 0 && pageDuplicateCount > 0) {
-                    consecutiveDuplicatePages++;
-                    if (!fullLoad && consecutiveDuplicatePages >= 2) {
-                        logger.info("[{}] End: 2 consecutive duplicate pages (incremental)", type);
-                        break;
-                    }
-                    if (fullLoad && consecutiveDuplicatePages >= 5) {
-                        logger.info("[{}] End: 5 consecutive duplicate pages (full load)", type);
-                        break;
-                    }
-                } else {
-                    consecutiveDuplicatePages = 0;
-                }
-
-                // 종료 조건 4: 마지막 페이지 휴리스틱(fullLoad만)
+                //  종료 조건 4: 마지막 페이지 휴리스틱(끝까지 내려가는 경우에도 적용)
                 if (fullLoad) {
                     int expectedPageSize = step == 1 ? 10 : step;
                     if (generalRows.size() < expectedPageSize) {

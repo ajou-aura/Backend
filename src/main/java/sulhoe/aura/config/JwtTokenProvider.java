@@ -95,7 +95,11 @@ public class JwtTokenProvider {
 
     // Claims 꺼내기
     private Claims getClaims(String token) {
-        return jwtParser.parseClaimsJws(token).getBody();
+        try {
+            return jwtParser.parseClaimsJws(token).getBody();
+        } catch (ExpiredJwtException ex) {
+            return ex.getClaims();
+        }
     }
 
     public String getEmail(String token) {

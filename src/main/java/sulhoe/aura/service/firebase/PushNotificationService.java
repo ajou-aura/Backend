@@ -1,8 +1,13 @@
 package sulhoe.aura.service.firebase;
 
 import com.google.firebase.messaging.AndroidConfig;
+import com.google.firebase.messaging.AndroidNotification;
+import com.google.firebase.messaging.ApnsConfig;
+import com.google.firebase.messaging.Aps;
+import com.google.firebase.messaging.ApsAlert;
 import com.google.firebase.messaging.FirebaseMessaging;
 import com.google.firebase.messaging.Message;
+import com.google.firebase.messaging.Notification;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -10,6 +15,7 @@ import sulhoe.aura.service.notice.NoticeTypeLabelResolver;
 
 import java.text.Normalizer;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Locale;
 
 @Service
@@ -62,7 +68,12 @@ public class PushNotificationService {
                     .putData("title", p.title())
                     .putData("body", p.body())
                     .putData("link", nz(link))
-                    .setAndroidConfig(androidHighPriority(Duration.ofHours(6)))
+                    .setNotification(Notification.builder()
+                            .setTitle(p.title())
+                            .setBody(p.body())
+                            .build())
+                    .setAndroidConfig(androidHighPriority(Duration.ofHours(6), p))
+                    .setApnsConfig(apnsAlertConfig(Duration.ofHours(6), p))
                     .build();
 
             String response = FirebaseMessaging.getInstance().send(message);
@@ -72,10 +83,31 @@ public class PushNotificationService {
         }
     }
 
-    private AndroidConfig androidHighPriority(Duration ttl) {
+    private AndroidConfig androidHighPriority(Duration ttl, Payload payload) {
         return AndroidConfig.builder()
                 .setPriority(AndroidConfig.Priority.HIGH)
                 .setTtl(ttl.toMillis())
+                .setNotification(AndroidNotification.builder()
+                        .setTitle(payload.title())
+                        .setBody(payload.body())
+                        .setSound("default")
+                        .build())
+                .build();
+    }
+
+    private ApnsConfig apnsAlertConfig(Duration ttl, Payload payload) {
+        return ApnsConfig.builder()
+                .putHeader("apns-priority", "10")
+                .putHeader("apns-push-type", "alert")
+                .putHeader("apns-expiration", String.valueOf(Instant.now().plus(ttl).getEpochSecond()))
+                .setAps(Aps.builder()
+                        .setAlert(ApsAlert.builder()
+                                .setTitle(payload.title())
+                                .setBody(payload.body())
+                                .build())
+                        .setSound("default")
+                        .setContentAvailable(true)
+                        .build())
                 .build();
     }
 

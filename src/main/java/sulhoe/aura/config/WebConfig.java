@@ -7,6 +7,8 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.web.method.HandlerTypePredicate;
 import org.springframework.web.servlet.config.annotation.*;
 
+import java.util.Arrays;
+
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
 
@@ -27,7 +29,10 @@ public class WebConfig implements WebMvcConfigurer {
     @Override
     public void addCorsMappings(CorsRegistry registry) {
         registry.addMapping("/**")
-                .allowedOrigins(corsOrigins.split(","))
+                .allowedOrigins(Arrays.stream(corsOrigins.split(","))
+                        .map(String::trim)
+                        .filter(origin -> !origin.isBlank())
+                        .toArray(String[]::new))
                 .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
                 .allowedHeaders("*")
                 .exposedHeaders("WWW-Authenticate", "X-CSRF-TOKEN")

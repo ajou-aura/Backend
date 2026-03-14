@@ -5,18 +5,24 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
+import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.util.HtmlUtils;
 import org.springframework.web.util.UriComponentsBuilder;
 import sulhoe.aura.config.JwtTokenProvider;
 import sulhoe.aura.dto.ApiResponse;
+import sulhoe.aura.dto.login.AppExchangeRequestDto;
+import sulhoe.aura.dto.login.AppExchangeResponseDto;
+import sulhoe.aura.dto.login.AuthRefreshResponseDto;
+import sulhoe.aura.dto.login.AuthTokenRequestDto;
+import sulhoe.aura.dto.login.AuthUserDto;
 import sulhoe.aura.dto.login.LoginResponseDto;
 import sulhoe.aura.handler.ApiException;
 import sulhoe.aura.service.login.AuthService;
+import sulhoe.aura.service.login.SsoTokenExchangeService;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.util.Map;
 import org.springframework.security.web.csrf.CsrfToken;
 import sulhoe.aura.service.login.SsoTicketService;
 
@@ -29,6 +35,7 @@ public class AuthController {
     private final AuthService authService;
     private final JwtTokenProvider jwt;
     private final SsoTicketService ssoTicketService;
+    private final SsoTokenExchangeService ssoTokenExchangeService;
 
     @Value("${oauth.google.client-id}")
     private String clientId;
@@ -81,6 +88,35 @@ public class AuthController {
                 .build();
     }
 
+    private void writeSessionCookies(HttpServletResponse response, String accessToken, String refreshToken) {
+        response.addHeader(HttpHeaders.SET_COOKIE, refreshCookie(refreshToken).toString());
+        response.addHeader(HttpHeaders.SET_COOKIE, webSessionCookie(accessToken).toString());
+    }
+
+    private void clearAuthCookies(HttpServletResponse response) {
+        response.addHeader(HttpHeaders.SET_COOKIE, clearCookie("refreshToken").toString());
+        response.addHeader(HttpHeaders.SET_COOKIE, clearCookie("WEB_SESSION").toString());
+    }
+
+    private String resolveRefreshToken(String cookieRt, AuthTokenRequestDto body) {
+        String bodyRt = body != null ? body.refreshToken() : null;
+        if (StringUtils.hasText(bodyRt)) {
+            return bodyRt;
+        }
+        return StringUtils.hasText(cookieRt) ? cookieRt : null;
+    }
+
+    private String tokenSource(String cookieRt, AuthTokenRequestDto body) {
+        String bodyRt = body != null ? body.refreshToken() : null;
+        if (StringUtils.hasText(bodyRt)) {
+            return "body";
+        }
+        if (StringUtils.hasText(cookieRt)) {
+            return "cookie";
+        }
+        return "none";
+    }
+
     // 구글 로그인 시작: ?mode=app | web
     @GetMapping("/google")
     public void redirectToGoogle(@RequestParam(defaultValue = "web") String mode,
@@ -128,8 +164,7 @@ public class AuthController {
                 return;
             }
 
-            res.addHeader(HttpHeaders.SET_COOKIE, refreshCookie(dto.refreshToken()).toString());
-            res.addHeader(HttpHeaders.SET_COOKIE, webSessionCookie(dto.accessToken()).toString());
+            writeSessionCookies(res, dto.accessToken(), dto.refreshToken());
 
             String target = UriComponentsBuilder.fromUriString(frontendUrl)
                     .queryParam("signUp", dto.signUp())
@@ -187,18 +222,32 @@ public class AuthController {
         }
     }
 
+    @PostMapping("/app/exchange")
+    public ResponseEntity<ApiResponse<AppExchangeResponseDto>> exchangeApp(@RequestBody(required = false) AppExchangeRequestDto request) {
+        String code = request != null ? request.code() : null;
+        var exchanged = ssoTokenExchangeService.exchangeTicket(code);
+
+        AppExchangeResponseDto response = new AppExchangeResponseDto(
+                exchanged.accessToken(),
+                exchanged.refreshToken(),
+                exchanged.signUp(),
+                new AuthUserDto(exchanged.email(), exchanged.name())
+        );
+
+        return ResponseEntity.ok(ApiResponse.success(response));
+    }
+
     // 리프레시
     @PostMapping("/refresh")
-    public ResponseEntity<ApiResponse<Map<String, String>>> refresh(
+    public ResponseEntity<ApiResponse<AuthRefreshResponseDto>> refresh(
             @CookieValue(value = "refreshToken", required = false) String cookieRt,
-            @RequestBody(required = false) Map<String, String> body,
+            @RequestBody(required = false) AuthTokenRequestDto body,
             HttpServletResponse response
     ) {
-        String bodyRt = (body != null ? body.get("refreshToken") : null);
-        String rt = (bodyRt != null ? bodyRt : cookieRt);
+        String rt = resolveRefreshToken(cookieRt, body);
         log.info("[REFRESH] called: source={}, hasRt={}",
-                (bodyRt!=null ? "body" : (cookieRt!=null ? "cookie" : "none")),
-                (rt!=null));
+                tokenSource(cookieRt, body),
+                (rt != null));
 
         if (rt == null) {
             throw new sulhoe.aura.handler.ApiException(
@@ -213,12 +262,11 @@ public class AuthController {
             var dto = authService.refreshAccessToken(rt); // (회전된 RT 포함)
 
             // 웹 호환: 쿠키도 항상 갱신해줌(앱은 무시)
-            response.addHeader(HttpHeaders.SET_COOKIE, refreshCookie(dto.refreshToken()).toString());
-            response.addHeader(HttpHeaders.SET_COOKIE, webSessionCookie(dto.accessToken()).toString());
+            writeSessionCookies(response, dto.accessToken(), dto.refreshToken());
 
             // 앱 호환: JSON도 내려줌(웹은 안 써도 됨)
             return ResponseEntity.ok(ApiResponse.success(
-                    Map.of("accessToken", dto.accessToken(), "refreshToken", dto.refreshToken())
+                    new AuthRefreshResponseDto(dto.accessToken(), dto.refreshToken())
             ));
         } catch (sulhoe.aura.handler.ApiException ex) {
             // 서비스가 401을 던지면 쿠키 정리 헤더를 보장
@@ -259,28 +307,12 @@ public class AuthController {
 
     @GetMapping("/sso/bridge")
     public ResponseEntity<String> ssoBridge(@RequestParam("code") String ticket) {
-        var payload = ssoTicketService.consume(ticket); // 1회성, 짧은 TTL 검증
-        if (payload == null) {
-            throw new sulhoe.aura.handler.ApiException(
-                    org.springframework.http.HttpStatus.UNAUTHORIZED,
-                    "유효하지 않거나 만료된 SSO 티켓입니다.",
-                    "INVALID_SSO_TICKET",
-                    "code"
-            );
-        }
-
-        // 필요 정보 복원
-        String email = payload.email();
-        String name  = payload.name();
-        boolean signUp = payload.signUp();
-
-        // 쿠키용 토큰 발급 (여기서만 새로 만들어 WebView 쿠키저장소에 심김)
-        String access  = jwt.createAccessToken(email, name);
-        String refresh = authService.ssoRefresh(email); // RT 회전(단일 RT 정책)
+        // Legacy/WebView bridge: 네이티브 앱은 /auth/app/exchange 를 사용한다.
+        var exchanged = ssoTokenExchangeService.exchangeTicket(ticket);
 
         String target = UriComponentsBuilder.fromUriString(frontendUrl)
                 .queryParam("embed", "app")
-                .queryParam("signUp", signUp)
+                .queryParam("signUp", exchanged.signUp())
                 .build(true).toUriString();
 
         String safeAttr = HtmlUtils.htmlEscape(target);
@@ -297,8 +329,8 @@ public class AuthController {
     """.formatted(safeAttr, safeJs, safeJs);
 
         return ResponseEntity.ok()
-                .header(HttpHeaders.SET_COOKIE, webSessionCookie(access).toString())
-                .header(HttpHeaders.SET_COOKIE, refreshCookie(refresh).toString())
+                .header(HttpHeaders.SET_COOKIE, webSessionCookie(exchanged.accessToken()).toString())
+                .header(HttpHeaders.SET_COOKIE, refreshCookie(exchanged.refreshToken()).toString())
                 .header(HttpHeaders.CACHE_CONTROL, "no-store")
                 .contentType(MediaType.TEXT_HTML)
                 .body(html);
@@ -313,14 +345,16 @@ public class AuthController {
     @PostMapping("/logout")
     public ResponseEntity<ApiResponse<Void>> logout(
             @CookieValue(value = "refreshToken", required = false) String cookieRt,
+            @RequestBody(required = false) AuthTokenRequestDto body,
             HttpServletResponse response
     ) {
-        log.info("[LOGOUT] called: hasRt={}", (cookieRt != null));
+        String refreshToken = resolveRefreshToken(cookieRt, body);
+        log.info("[LOGOUT] called: source={}, hasRt={}", tokenSource(cookieRt, body), (refreshToken != null));
 
         // 리프레시 토큰이 있으면 DB에서 무효화
-        if (cookieRt != null) {
+        if (refreshToken != null) {
             try {
-                authService.revokeRefreshToken(cookieRt);
+                authService.revokeRefreshToken(refreshToken);
                 log.info("[LOGOUT] Successfully revoked refresh token");
             } catch (Exception e) {
                 log.warn("[LOGOUT] Failed to revoke refresh token: {}", e.getMessage());
@@ -329,8 +363,7 @@ public class AuthController {
         }
 
         // 쿠키 삭제
-        response.addHeader(HttpHeaders.SET_COOKIE, clearCookie("refreshToken").toString());
-        response.addHeader(HttpHeaders.SET_COOKIE, clearCookie("WEB_SESSION").toString());
+        clearAuthCookies(response);
 
         return ResponseEntity.ok(ApiResponse.success(null));
     }

@@ -19,6 +19,8 @@ import java.util.Set;
 @Service
 @RequiredArgsConstructor
 public class AuthService {
+    private static final String REVOKED_REFRESH_TOKEN = "";
+
     private final GoogleOAuthService googleOAuthService;
     private final JwtTokenProvider jwtTokenProvider;
     private final UserRepository userRepository;
@@ -134,32 +136,26 @@ public class AuthService {
 
     /**
      * 리프레시 토큰 무효화 (로그아웃용)
-     * DB에 저장된 리프레시 토큰을 null로 설정
+     * DB에 저장된 리프레시 토큰을 빈 값으로 교체해 재사용을 막는다.
      */
     @Transactional
     public void revokeRefreshToken(String refreshToken) {
         log.debug("[AUTH] revokeRefreshToken called");
 
-        // 토큰 검증 (만료되었어도 이메일 추출은 가능)
+        if (refreshToken == null || refreshToken.isBlank()) {
+            return;
+        }
+
         String email;
         try {
             email = jwtTokenProvider.getEmail(refreshToken);
         } catch (Exception e) {
             log.warn("[AUTH] Failed to extract email from token: {}", e.getMessage());
-            // 토큰 파싱 실패해도 조용히 처리 (이미 만료된 경우 등)
             return;
         }
 
-        User user = userRepository.findByEmail(email).orElse(null);
-        if (user == null) {
-            log.warn("[AUTH] User not found for email: {}", email);
-            return;
-        }
-
-        // DB의 토큰과 일치하는지 확인 후 무효화
-        if (refreshToken.equals(user.getRefreshToken())) {
-            user.setRefreshToken(null);
-            userRepository.save(user);
+        int updated = userRepository.rotateRefreshTokenAtomically(email, refreshToken, REVOKED_REFRESH_TOKEN);
+        if (updated == 1) {
             log.info("[AUTH] Revoked refresh token for user: {}", email);
         } else {
             log.debug("[AUTH] Token mismatch, already rotated or revoked");

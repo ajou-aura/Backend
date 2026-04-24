@@ -90,11 +90,6 @@ public class NoticeScrapeService {
                     Notice n = parser.parseRow(row, true, url);
                     n.setType(type);
 
-                    // DB에 없는 공지만 저장 (고정공지도 동일)
-                    if (repo.existsByLink(n.getLink())) {
-                        continue;
-                    }
-
                     buffer.add(n);
                     if (buffer.size() >= CHUNK_SIZE) {
                         flushChunk(buffer, type);
@@ -142,8 +137,7 @@ public class NoticeScrapeService {
                 }
 
                 consecutiveEmptyPages = 0;
-                int pageNewCount = 0;
-                int pageDuplicateCount = 0;
+                int pageBufferedCount = 0;
 
                 // 페이지 지문(첫/마지막 링크 + row 수)
                 String firstLink = null;
@@ -159,14 +153,8 @@ public class NoticeScrapeService {
                             if (firstLink == null) firstLink = n.getLink();
                             lastLink = n.getLink();
 
-                            // DB에 없는 공지만 저장
-                            if (repo.existsByLink(n.getLink())) {
-                                pageDuplicateCount++;
-                                continue;
-                            }
-
                             buffer.add(n);
-                            pageNewCount++;
+                            pageBufferedCount++;
 
                             if (buffer.size() >= CHUNK_SIZE) {
                                 flushChunk(buffer, type);
@@ -184,8 +172,8 @@ public class NoticeScrapeService {
                 pagesFetched++;
                 pageIdx += step;
 
-                logger.info("[{}] Page {}: {} new, {} duplicate (buffer now: {})",
-                        type, pagesFetched, pageNewCount, pageDuplicateCount, buffer.size());
+                logger.info("[{}] Page {}: {} buffered (buffer now: {})",
+                        type, pagesFetched, pageBufferedCount, buffer.size());
 
                 // 종료 조건 2: 같은 페이지 반복 감지(무한루프 방지)
                 if (firstLink != null && lastLink != null) {

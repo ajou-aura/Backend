@@ -678,7 +678,7 @@ Scenario: Refresh token stored as hash, not plaintext
   - Files: `SecurityConfig.java`, test files
   - Pre-commit: `./gradlew test`
 
-- [ ] 6. FORCE_BACKFILL Configurable
+- [x] 6. FORCE_BACKFILL Configurable
 
   **What to do**:
   - RED: Write test that verifies when `app.notice.force-backfill=false`, the scraper uses incremental mode (not full load).
@@ -750,7 +750,7 @@ Scenario: Refresh token stored as hash, not plaintext
   - Files: `NoticeScrapeService.java`, `application.properties`, test files
   - Pre-commit: `./gradlew test`
 
-- [ ] 7. User.departments LAZY + @Transactional
+- [x] 7. User.departments LAZY + @Transactional
 
   **What to do**:
   - RED: Write test that accesses `user.getDepartments()` outside a transaction → expects `LazyInitializationException`. Write test that accesses it inside `@Transactional` → succeeds.
@@ -827,7 +827,7 @@ Scenario: Refresh token stored as hash, not plaintext
   - Files: `User.java`, `UserController.java`, `KeywordService.java`, test files
   - Pre-commit: `./gradlew test`
 
-- [ ] 8. Global Keyword Cache Reuse in Fanout
+- [x] 8. Global Keyword Cache Reuse in Fanout
 
   **What to do**:
   - RED: Write test that verifies `keywordRepo.findAllByScope(GLOBAL)` is called at most once per `onNoticeSaved` cycle (or per notice chunk), not once per notice.

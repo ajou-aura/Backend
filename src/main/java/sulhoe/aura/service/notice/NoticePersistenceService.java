@@ -8,9 +8,13 @@ import sulhoe.aura.entity.Notice;
 import sulhoe.aura.repository.NoticeRepository;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -20,16 +24,68 @@ public class NoticePersistenceService {
     /** 청크 단위 진입: 내부에서 항목별 REQUIRES_NEW로 처리하여 fail-soft */
     @Transactional(propagation = Propagation.SUPPORTS, readOnly = false)
     public List<Notice> persistNotices(List<Notice> scraped) {
-        List<Notice> newOrUpdated = new ArrayList<>();
+        if (scraped == null || scraped.isEmpty()) {
+            return List.of();
+        }
+
+        List<String> links = scraped.stream()
+                .filter(Objects::nonNull)
+                .map(Notice::getLink)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+
+        Map<String, Notice> existingByLink = links.isEmpty()
+                ? new LinkedHashMap<>()
+                : noticeRepo.findByLinkIn(links).stream()
+                .filter(existing -> existing.getLink() != null)
+                .collect(Collectors.toMap(
+                        Notice::getLink,
+                        existing -> existing,
+                        (left, right) -> left,
+                        LinkedHashMap::new
+                ));
+
+        Map<String, Notice> newByLink = new LinkedHashMap<>();
+        LinkedHashSet<String> updatedExistingLinks = new LinkedHashSet<>();
+
         for (Notice n : scraped) {
-            try {
-                Notice saved = saveOrUpdateOne(n);
-                if (saved != null) newOrUpdated.add(saved);
-            } catch (Exception ex) {
-                org.slf4j.LoggerFactory.getLogger(NoticePersistenceService.class)
-                        .warn("[PERSIST] single item failed (link={}): {}", n.getLink(), ex.toString());
+            if (n == null) {
+                continue;
+            }
+
+            Notice existing = existingByLink.get(n.getLink());
+            if (existing != null) {
+                if (isUpdated(existing, n)) {
+                    merge(existing, n);
+                    updatedExistingLinks.add(n.getLink());
+                }
+                continue;
+            }
+
+            Notice pendingInsert = newByLink.get(n.getLink());
+            if (pendingInsert == null) {
+                newByLink.put(n.getLink(), n);
+                continue;
+            }
+
+            if (isUpdated(pendingInsert, n)) {
+                merge(pendingInsert, n);
             }
         }
+
+        List<Notice> newOrUpdated = new ArrayList<>();
+        if (!newByLink.isEmpty()) {
+            newOrUpdated.addAll(noticeRepo.saveAll(new ArrayList<>(newByLink.values())));
+        }
+
+        if (!updatedExistingLinks.isEmpty()) {
+            List<Notice> updates = updatedExistingLinks.stream()
+                    .map(existingByLink::get)
+                    .toList();
+            newOrUpdated.addAll(noticeRepo.saveAll(updates));
+        }
+
         return newOrUpdated;
     }
 

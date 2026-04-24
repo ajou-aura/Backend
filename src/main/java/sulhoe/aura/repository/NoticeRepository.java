@@ -14,6 +14,7 @@ import java.util.UUID;
 
 public interface NoticeRepository extends JpaRepository<Notice, UUID> {
     Optional<Notice> findByLink(String link);
+    List<Notice> findByLinkIn(List<String> links);
     boolean existsByType(String type);
 
     // 기본 페이징

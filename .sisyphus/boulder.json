@@ -18,6 +18,15 @@
       "agent": "Sisyphus-Junior",
       "category": "quick",
       "updated_at": "2026-04-24T09:13:18.283Z"
+    },
+    "todo:1": {
+      "task_key": "todo:1",
+      "task_label": "1",
+      "task_title": "Admin RBAC — SecurityConfig + JWT Role",
+      "session_id": "ses_2412ca570ffeTtVMdo3DOOtRMg",
+      "agent": "Sisyphus-Junior",
+      "category": "quick",
+      "updated_at": "2026-04-24T09:50:42.308Z"
     }
   }
 }

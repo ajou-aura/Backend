@@ -1,0 +1,2 @@
+- T5 CSRF scope now skips only `/api/auth/app/exchange` by path and skips non-cookie clients via an `Authorization: Bearer ` request matcher; cookie-authenticated unsafe `/api/**` requests now require the XSRF cookie/header pair again.
+- `SecurityConfigCsrfTest` uses the real `CookieCsrfTokenRepository` flow: fetch `/api/auth/csrf`, reuse `XSRF-TOKEN` + `X-XSRF-TOKEN`, assert cookie-auth POST 403 without CSRF and 200 with CSRF, and assert Bearer POST remains CSRF-exempt.

@@ -1,0 +1,2 @@
+- Kept CSRF enabled for all cookie-authenticated unsafe `/api/**` requests instead of restoring the old blanket `/api/**` ignore rule; only the Bearer-only app exchange path and Bearer-authenticated requests bypass CSRF.
+- Verified `/api/auth/csrf` through integration tests instead of changing controller behavior, preserving the existing cookie/header issuance contract.

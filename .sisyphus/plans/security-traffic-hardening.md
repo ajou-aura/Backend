@@ -284,7 +284,7 @@ Max Concurrent: 5 (Wave 1)
   - Files: `build.gradle`, `src/test/resources/application-test.properties`, `src/test/java/sulhoe/aura/config/SecurityTestConfig.java`
   - Pre-commit: `./gradlew test`
 
-- [ ] 1. Admin RBAC — SecurityConfig + JWT Role
+- [x] 1. Admin RBAC — SecurityConfig + JWT Role
 
   **What to do**:
   - RED: Write integration test that sends `POST /api/admin/push/topic` with a regular user JWT → expects 403. Write test with admin email JWT → expects 200 (or 404 if no targets, not 500).
@@ -365,7 +365,7 @@ Max Concurrent: 5 (Wave 1)
   - Files: `SecurityConfig.java`, `JwtTokenProvider.java`, `JwtAuthenticationFilter.java`, `AdminPushController.java`, `User.java`, `AuthService.java`, test files
   - Pre-commit: `./gradlew test`
 
-- [ ] 2. Refresh Token SHA-256 Hashing
+- [x] 2. Refresh Token SHA-256 Hashing
 
   **What to do**:
   - RED: Write test that verifies `User.refreshToken` does NOT contain the raw JWT value after a refresh cycle.
@@ -443,7 +443,7 @@ Scenario: Refresh token stored as hash, not plaintext
   - Files: `AuthService.java`, `UserRepository.java`, `User.java`, test files
   - Pre-commit: `./gradlew test`
 
-- [ ] 3. OAuth State Cryptographic Nonce
+- [x] 3. OAuth State Cryptographic Nonce
 
   **What to do**:
   - RED: Write test that verifies `/api/auth/callback` rejects requests with unknown or expired `state` parameter.
@@ -519,7 +519,7 @@ Scenario: Refresh token stored as hash, not plaintext
   - Files: `AuthController.java`, `SsoTicketService.java` (or new `StateNonceStore.java`), `AuthControllerTest.java`
   - Pre-commit: `./gradlew test`
 
-- [ ] 4. SSO Ticket Store Bounds + Eviction
+- [x] 4. SSO Ticket Store Bounds + Eviction
 
   **What to do**:
   - RED: Write test that creates 10,001 tickets and verifies store rejects after 10,000. Write test that expired tickets are evicted by the cleanup scheduler.
@@ -597,7 +597,7 @@ Scenario: Refresh token stored as hash, not plaintext
   - Files: `SsoTicketService.java`, test files
   - Pre-commit: `./gradlew test`
 
-- [ ] 5. CSRF Scope Restriction
+- [x] 5. CSRF Scope Restriction
 
   **What to do**:
   - RED: Write test that sends `POST /api/user/departments` with cookie auth but no CSRF token → expects 403. Write test that sends `POST /api/auth/app/exchange` with Bearer token → expects 200 (no CSRF needed).

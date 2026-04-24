@@ -5,6 +5,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 import sulhoe.aura.config.JwtTokenProvider;
+import sulhoe.aura.entity.Role;
 import sulhoe.aura.handler.ApiException;
 
 @Service
@@ -35,7 +36,8 @@ public class SsoTokenExchangeService {
             );
         }
 
-        String accessToken = jwtTokenProvider.createAccessToken(payload.email(), payload.name());
+        Role role = authService.findUserRole(payload.email());
+        String accessToken = jwtTokenProvider.createAccessToken(payload.email(), payload.name(), role);
         String refreshToken = authService.ssoRefresh(payload.email());
         return new ExchangeResult(
                 accessToken,

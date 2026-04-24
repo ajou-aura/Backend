@@ -28,6 +28,10 @@ public class User {
     @Column(nullable = false)
     private String refreshToken;
 
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 20)
+    private Role role = Role.USER;
+
     @ElementCollection(fetch = FetchType.EAGER)
     @CollectionTable(
             name = "user_departments",
@@ -48,5 +52,13 @@ public class User {
         this.name = name;
         this.email = email;
         this.departments = departments;
+        this.role = Role.USER;
+    }
+
+    @PrePersist
+    void applyDefaults() {
+        if (role == null) {
+            role = Role.USER;
+        }
     }
 }

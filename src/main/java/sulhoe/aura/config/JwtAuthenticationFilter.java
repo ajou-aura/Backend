@@ -13,6 +13,7 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
+import sulhoe.aura.entity.Role;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -55,14 +56,16 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 if (jwt.validateToken(token)) {
                     String email = jwt.getEmail(token);
                     String name  = jwt.getName(token);
+                    Role role = jwt.getRole(token);
 
                     Map<String, String> principal = Map.of(
                             "email", email,
-                            "name",  name
+                            "name",  name,
+                            "role", role.name()
                     );
 
                     List<SimpleGrantedAuthority> roles =
-                            List.of(new SimpleGrantedAuthority("ROLE_USER"));
+                            List.of(new SimpleGrantedAuthority("ROLE_" + role.name()));
 
                     var authentication = new UsernamePasswordAuthenticationToken(
                             principal,   // principal
@@ -72,7 +75,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                     authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(req));
                     SecurityContextHolder.getContext().setAuthentication(authentication);
 
-                    log.info("JWT 인증 성공: {} / {}", email, name);
+                    log.info("JWT 인증 성공: {} / {} / {}", email, name, role);
                 } else {
                     // 유효하지 않은 토큰이면 인증 생략 (EntryPoint가 최종 401 처리)
                     log.warn("[FILTER] JWT 토큰 검증 실패. 요청 URI: {}", req.getRequestURI());

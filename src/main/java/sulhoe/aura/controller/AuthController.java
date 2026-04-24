@@ -121,12 +121,16 @@ public class AuthController {
     @GetMapping("/google")
     public void redirectToGoogle(@RequestParam(defaultValue = "web") String mode,
                                  HttpServletResponse res) throws IOException {
+        String nonce = ssoTicketService.generateStateNonce(mode);
+        String state = java.util.Base64.getUrlEncoder().withoutPadding()
+                .encodeToString((nonce + ":" + mode).getBytes(StandardCharsets.UTF_8));
+
         String url = UriComponentsBuilder.fromUriString("https://accounts.google.com/o/oauth2/v2/auth")
                 .queryParam("client_id", clientId)
                 .queryParam("redirect_uri", redirectUri)
                 .queryParam("response_type", "code")
                 .queryParam("scope", "openid email profile")
-                .queryParam("state", mode) // 앱/웹 분기 신호
+                .queryParam("state", state)
                 .build().toUriString();
         log.debug("[CTRL] Redirecting to Google OAuth URL: {}", url);
         res.sendRedirect(url);
@@ -136,13 +140,12 @@ public class AuthController {
     // 쿠키 두 개(REFRESH + WEB_SESSION)만 심고 프론트로 이동
     @GetMapping("/callback")
     public void callback(@RequestParam(required = false) String code,
-                         @RequestParam(required = false, defaultValue = "web") String state,
+                         @RequestParam(required = false, defaultValue = "") String state,
                          @RequestParam(required = false, name = "error") String oauthError,
                          @RequestParam(required = false, name = "error_description") String oauthErrorDesc,
                          HttpServletResponse res) throws IOException {
         try {
             if (code == null) {
-                // 구글이 error만 보내고 code가 없을 때
                 throw new ApiException(
                         org.springframework.http.HttpStatus.BAD_REQUEST,
                         (oauthErrorDesc != null && !oauthErrorDesc.isBlank()) ? oauthErrorDesc : "유효하지 않은 인가 코드입니다.",
@@ -151,9 +154,10 @@ public class AuthController {
                 );
             }
 
+            String mode = resolveAndValidateState(state);
             LoginResponseDto dto = authService.loginWithGoogle(code);
 
-            if ("app".equalsIgnoreCase(state)) {
+            if ("app".equals(mode)) {
                 String email = jwt.getEmail(dto.accessToken());
                 String name  = jwt.getName(dto.accessToken());
                 String ticket = ssoTicketService.issue(email, name, dto.signUp());
@@ -175,18 +179,18 @@ public class AuthController {
             log.info("[CTRL] Redirecting back to frontend with tokens: {}", target);
 
         } catch (ApiException e) {
-            if ("app".equalsIgnoreCase(state)) {
+            String mode = resolveModeFromState(state);
+            if ("app".equals(mode)) {
                 String target = UriComponentsBuilder.fromUriString("aura://oauth-callback")
                         .queryParam("error", e.getErrorCode())
                         .queryParam("status", e.getStatus().value())
-                        .queryParam("message", e.getMessage()) // 앱이 토스트 등에 표시할 수 있음
+                        .queryParam("message", e.getMessage())
                         .build()
                         .encode(StandardCharsets.UTF_8)
                         .toUriString();
                 res.sendRedirect(target);
                 return;
             }
-            // 웹: 전용 에러 페이지가 없어도 라우팅만 정해두면 됨(예: /auth/error -> 전역 토스트)
             String target = UriComponentsBuilder.fromUriString(frontendUrl)
                     .path("/auth/error")
                     .queryParam("status", e.getStatus().value())
@@ -198,8 +202,8 @@ public class AuthController {
 
             res.sendRedirect(target);
         } catch (Exception e) {
-            log.error("[CALLBACK] unexpected error", e);
-            if ("app".equalsIgnoreCase(state)) {
+            String mode = resolveModeFromState(state);
+            if ("app".equals(mode)) {
                 String deeplink = UriComponentsBuilder.fromUriString("aura://oauth-callback")
                         .queryParam("error", "INTERNAL_SERVER_ERROR")
                         .queryParam("status", 500)
@@ -220,6 +224,67 @@ public class AuthController {
                     .toUriString();
             res.sendRedirect(target);
         }
+    }
+
+    private String resolveAndValidateState(String state) {
+        if (state == null || state.isBlank()) {
+            throw new ApiException(
+                    org.springframework.http.HttpStatus.UNAUTHORIZED,
+                    "	state 파라미터가 누락되었습니다.",
+                    "INVALID_STATE",
+                    "state"
+            );
+        }
+        byte[] decoded;
+        try {
+            decoded = java.util.Base64.getUrlDecoder().decode(state);
+        } catch (IllegalArgumentException e) {
+            throw new ApiException(
+                    org.springframework.http.HttpStatus.UNAUTHORIZED,
+                    "유효하지 않은 state 형식입니다.",
+                    "INVALID_STATE",
+                    "state"
+            );
+        }
+        String[] parts = new String(decoded, StandardCharsets.UTF_8).split(":", 2);
+        if (parts.length != 2) {
+            throw new ApiException(
+                    org.springframework.http.HttpStatus.UNAUTHORIZED,
+                    "state 파싱에 실패했습니다.",
+                    "INVALID_STATE",
+                    "state"
+            );
+        }
+        String nonce = parts[0];
+        String validatedMode = ssoTicketService.consumeStateNonce(nonce);
+        if (validatedMode == null) {
+            throw new ApiException(
+                    org.springframework.http.HttpStatus.UNAUTHORIZED,
+                    "state가 유효하지 않거나 만료되었습니다.",
+                    "INVALID_STATE",
+                    "state"
+            );
+        }
+        return validatedMode;
+    }
+
+    private String resolveModeFromState(String state) {
+        if (state == null || state.isBlank()) {
+            return "web";
+        }
+        try {
+            byte[] decoded = java.util.Base64.getUrlDecoder().decode(state);
+            String[] parts = new String(decoded, StandardCharsets.UTF_8).split(":", 2);
+            if (parts.length == 2) {
+                String nonce = parts[0];
+                String storedMode = ssoTicketService.consumeStateNonce(nonce);
+                if (storedMode != null) {
+                    return storedMode;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return "web";
     }
 
     @PostMapping("/app/exchange")

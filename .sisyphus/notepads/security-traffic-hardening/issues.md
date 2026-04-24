@@ -1,0 +1,2 @@
+- Verification was initially blocked by pre-existing corruption in `SsoTicketService` and `SsoTicketServiceTest`; both files had duplicated/broken content and were normalized so `./gradlew test` could compile and run.
+- Gradle test reporting hit `TestOutputStore` XML generation EOF errors on repeated runs; adding `src/test/resources/logback-test.xml` with root logging disabled stabilized `./gradlew clean test build`.

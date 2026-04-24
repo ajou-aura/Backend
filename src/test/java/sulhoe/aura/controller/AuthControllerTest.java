@@ -16,6 +16,7 @@ import sulhoe.aura.config.JwtTokenProvider;
 import sulhoe.aura.dto.login.AppExchangeRequestDto;
 import sulhoe.aura.dto.login.AuthTokenRequestDto;
 import sulhoe.aura.dto.login.LoginResponseDto;
+import sulhoe.aura.entity.Role;
 import sulhoe.aura.handler.GlobalExceptionHandler;
 import sulhoe.aura.service.login.AuthService;
 import sulhoe.aura.service.login.SsoTicketService;
@@ -24,8 +25,10 @@ import sulhoe.aura.service.login.SsoTokenExchangeService;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @ExtendWith(MockitoExtension.class)
@@ -66,7 +69,8 @@ class AuthControllerTest {
     @Test
     void exchangeAppReturnsJsonTokensForValidTicket() throws Exception {
         String ticket = ssoTicketService.issue("user@ajou.ac.kr", "Aura User", true);
-        when(jwtTokenProvider.createAccessToken("user@ajou.ac.kr", "Aura User")).thenReturn("app-access-token");
+        when(authService.findUserRole("user@ajou.ac.kr")).thenReturn(Role.USER);
+        when(jwtTokenProvider.createAccessToken("user@ajou.ac.kr", "Aura User", Role.USER)).thenReturn("app-access-token");
         when(authService.ssoRefresh("user@ajou.ac.kr")).thenReturn("app-refresh-token");
 
         mockMvc.perform(post("/auth/app/exchange")
@@ -84,7 +88,8 @@ class AuthControllerTest {
     @Test
     void exchangeAppRejectsReusedTicket() throws Exception {
         String ticket = ssoTicketService.issue("user@ajou.ac.kr", "Aura User", false);
-        when(jwtTokenProvider.createAccessToken("user@ajou.ac.kr", "Aura User")).thenReturn("app-access-token");
+        when(authService.findUserRole("user@ajou.ac.kr")).thenReturn(Role.USER);
+        when(jwtTokenProvider.createAccessToken("user@ajou.ac.kr", "Aura User", Role.USER)).thenReturn("app-access-token");
         when(authService.ssoRefresh("user@ajou.ac.kr")).thenReturn("app-refresh-token");
 
         mockMvc.perform(post("/auth/app/exchange")
@@ -129,5 +134,44 @@ class AuthControllerTest {
 
         verify(authService).refreshAccessToken("body-refresh-token");
         assertThat(result.getResponse().getHeaders(HttpHeaders.SET_COOKIE)).hasSize(2);
+    }
+
+    @Test
+    void callbackRejectsInvalidState() throws Exception {
+        mockMvc.perform(get("/auth/callback")
+                        .param("code", "valid-code")
+                        .param("state", "not-valid-base64"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(header().string("Location", org.hamcrest.Matchers.containsString("/auth/error")))
+                .andExpect(header().string("Location", org.hamcrest.Matchers.containsString("code=INVALID_STATE")));
+    }
+
+    @Test
+    void callbackRejectsExpiredState() throws Exception {
+        byte[] rawState = "nonce:web".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        String expiredState = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(rawState);
+
+        mockMvc.perform(get("/auth/callback")
+                        .param("code", "valid-code")
+                        .param("state", expiredState))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(header().string("Location", org.hamcrest.Matchers.containsString("/auth/error")))
+                .andExpect(header().string("Location", org.hamcrest.Matchers.containsString("code=INVALID_STATE")));
+    }
+
+    @Test
+    void callbackAcceptsValidStateAndRedirectsToFrontend() throws Exception {
+        String nonce = ssoTicketService.generateStateNonce("web");
+        byte[] rawState = (nonce + ":web").getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        String validState = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(rawState);
+
+        when(authService.loginWithGoogle("valid-code"))
+                .thenReturn(new LoginResponseDto("access-token", "refresh-token", false));
+
+        mockMvc.perform(get("/auth/callback")
+                        .param("code", "valid-code")
+                        .param("state", validState))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(header().string("Location", org.hamcrest.Matchers.containsString("https://frontend.example.com")));
     }
 }

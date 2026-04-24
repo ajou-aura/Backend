@@ -6,6 +6,7 @@ import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
+import sulhoe.aura.entity.Role;
 
 import javax.crypto.SecretKey;
 import java.util.Base64;
@@ -40,18 +41,20 @@ public class JwtTokenProvider {
                 .build();
     }
 
-    // Access Token: email(subject), name, department 클레임 포함
-    public String createAccessToken(String email, String name) {
+    // Access Token: email(subject), name, role 클레임 포함
+    public String createAccessToken(String email, String name, Role role) {
         long now = System.currentTimeMillis();
+        Role resolvedRole = role == null ? Role.USER : role;
         String token = Jwts.builder()
                 .setSubject(email)                          // sub = 이메일
                 .setIssuedAt(new Date(now))                 // iat
                 .setExpiration(new Date(now + ACCESS_EXP))  // exp
                 .claim("name", name)                        // 사용자 이름
+                .claim("role", resolvedRole.name())
                 .signWith(signingKey, SignatureAlgorithm.HS256)
                 .compact();
 
-        log.debug("[JWT-ACCESS] sub={} name={} exp={}", email, name,
+        log.debug("[JWT-ACCESS] sub={} name={} role={} exp={}", email, name, resolvedRole,
                 new Date(now + ACCESS_EXP));
         return token;
     }
@@ -108,5 +111,19 @@ public class JwtTokenProvider {
 
     public String getName(String token) {
         return getClaims(token).get("name", String.class);
+    }
+
+    public Role getRole(String token) {
+        String role = getClaims(token).get("role", String.class);
+        if (role == null || role.isBlank()) {
+            return Role.USER;
+        }
+
+        try {
+            return Role.valueOf(role);
+        } catch (IllegalArgumentException ex) {
+            log.warn("[JWT-ROLE] Invalid role claim: {}", role);
+            return Role.USER;
+        }
     }
 }

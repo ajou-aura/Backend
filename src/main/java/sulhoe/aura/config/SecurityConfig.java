@@ -19,7 +19,6 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import org.springframework.security.web.savedrequest.NullRequestCache;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.security.web.servlet.util.matcher.MvcRequestMatcher;
-import org.springframework.security.web.util.matcher.RequestMatcher;
 import org.springframework.web.filter.ForwardedHeaderFilter;
 import org.springframework.web.servlet.handler.HandlerMappingIntrospector;
 
@@ -52,12 +51,8 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(repo)
                         .ignoringRequestMatchers(
-                                new MvcRequestMatcher(introspector(), "/api/**")
-                                // new MvcRequestMatcher(introspector(), "/api/auth/**"),
-                                // (HttpServletRequest req) -> {
-                                //     String auth = req.getHeader("Authorization");
-                                //     return auth != null && auth.startsWith("Bearer ");
-                                // }
+                                new MvcRequestMatcher(introspector(), "/api/auth/app/exchange"),
+                                this::isBearerRequest
                         )
                 )
 
@@ -71,6 +66,8 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         // Preflight
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
+
+                        .requestMatchers("/api/admin/**").hasRole("ADMIN")
 
                         // 공개 엔드포인트
                         .requestMatchers(
@@ -110,6 +107,11 @@ public class SecurityConfig {
                 .formLogin(AbstractHttpConfigurer::disable)
 
                 .build();
+    }
+
+    private boolean isBearerRequest(HttpServletRequest request) {
+        String authorization = request.getHeader("Authorization");
+        return authorization != null && authorization.startsWith("Bearer ");
     }
 
     // 리버스 프록시(HTTPS Termination) 환경에서 X-Forwarded-* 신뢰 → Secure 쿠키/리다이렉트 판별 정확성 향상

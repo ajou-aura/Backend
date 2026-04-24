@@ -134,8 +134,16 @@ class SecurityIntegrationTest {
 
     @Test
     void regularUserGetsForbiddenOnAdminEndpoint() throws Exception {
+        MvcResult csrfResult = mockMvc.perform(get("/api/auth/csrf"))
+                .andExpect(status().isNoContent())
+                .andReturn();
+        Cookie csrfCookie = csrfResult.getResponse().getCookie("XSRF-TOKEN");
+        String csrfToken = csrfResult.getResponse().getHeader("X-CSRF-TOKEN");
+
         mockMvc.perform(post("/api/admin/push/topic")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + jwtTokenProvider.createAccessToken(USER_EMAIL, USER_NAME, Role.USER))
+                        .cookie(csrfCookie)
+                        .header("X-XSRF-TOKEN", csrfToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {
@@ -154,8 +162,16 @@ class SecurityIntegrationTest {
 
     @Test
     void adminUserCanAccessAdminEndpoint() throws Exception {
+        MvcResult csrfResult = mockMvc.perform(get("/api/auth/csrf"))
+                .andExpect(status().isNoContent())
+                .andReturn();
+        Cookie csrfCookie = csrfResult.getResponse().getCookie("XSRF-TOKEN");
+        String csrfToken = csrfResult.getResponse().getHeader("X-CSRF-TOKEN");
+
         mockMvc.perform(post("/api/admin/push/topic")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + jwtTokenProvider.createAccessToken(ADMIN_EMAIL, ADMIN_NAME, Role.ADMIN))
+                        .cookie(csrfCookie)
+                        .header("X-XSRF-TOKEN", csrfToken)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {

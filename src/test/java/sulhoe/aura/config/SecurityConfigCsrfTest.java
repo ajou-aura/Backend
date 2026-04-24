@@ -95,15 +95,15 @@ class SecurityConfigCsrfTest {
     }
 
     @Test
-    void bearerAuthenticatedPostWithoutCsrfReturnsOk() throws Exception {
+    void bearerAuthenticatedPostWithoutCsrfReturnsForbidden() throws Exception {
         mockMvc.perform(post("/api/user/departments")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + jwtTokenProvider.createAccessToken(EMAIL, NAME, Role.USER))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new DepartmentRequestDto("computer"))))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.status").value("success"));
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value("CSRF_FAILED"));
 
-        verify(userService).addDepartmentByEmail(EMAIL, "computer");
+        verifyNoInteractions(userService);
     }
 
     private Cookie webSessionCookie() {

@@ -63,6 +63,8 @@ public class AuthService {
         boolean isSignUp = optUser.isEmpty();
 
         User user;
+        // rawToken 변수를 메서드 전체에서 사용할 수 있도록 선언
+        final String rawRefreshToken;
         if (isSignUp) {
             // 신규 가입
             Set<String> depts = new HashSet<>();
@@ -76,9 +78,9 @@ public class AuthService {
                     depts
             );
             user.setRole(resolveRole(info.email()));
-            // 최초 리프레시 토큰 생성
-            String initialRefresh = jwtTokenProvider.createRefreshToken(info.email());
-            user.setRefreshToken(hashSha256(initialRefresh));
+            // 최초 리프레시 토큰 생성 및 저장 (DB에는 hash, 클라이언트에는 raw)
+            rawRefreshToken = jwtTokenProvider.createRefreshToken(info.email());
+            user.setRefreshToken(hashSha256(rawRefreshToken));
             user = userRepository.save(user);
             log.debug("[AUTH] New user created and refreshToken set");
         } else {
@@ -88,20 +90,20 @@ public class AuthService {
             user.setName(info.name());
             user.setRole(resolveRole(info.email()));
             // 항상 새 RT 발급 (기존 만료/임박 체크 제거)
-            user.setRefreshToken(hashSha256(jwtTokenProvider.createRefreshToken(info.email())));
+            rawRefreshToken = jwtTokenProvider.createRefreshToken(info.email());
+            user.setRefreshToken(hashSha256(rawRefreshToken));
             user = userRepository.save(user);
             log.debug("[AUTH] Existing user updated");
         }
 
-        String access  = jwtTokenProvider.createAccessToken(user.getEmail(), user.getName(), user.getRole());
-        String refresh = user.getRefreshToken();
-
-        return new LoginResponseDto(access, refresh, isSignUp);
+        String access = jwtTokenProvider.createAccessToken(user.getEmail(), user.getName(), user.getRole());
+        // 클라이언트에게는 raw token 반환 (DB에는 hash 저장됨)
+        return new LoginResponseDto(access, rawRefreshToken, isSignUp);
     }
 
     @Transactional
     public LoginResponseDto refreshAccessToken(String refreshToken) {
-        log.debug("[AUTH] refreshAccessToken, refreshToken={}", refreshToken);
+        log.debug("[AUTH] refreshAccessToken, refreshToken=***");
 
         if (!jwtTokenProvider.validateToken(refreshToken)) {
             throw new ApiException(

@@ -14,6 +14,7 @@ import sulhoe.aura.repository.NoticeRepository;
 import sulhoe.aura.repository.UserRepository;
 import sulhoe.aura.service.keyword.KeywordService;
 
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -30,14 +31,14 @@ public class UserService {
     public UserResponseDto getUserInfoByEmail(String email) {
         User user = findUserByEmail(email);
         log.debug("[SVC][USER-INFO] email={} name={}", user.getEmail(), user.getName());
-        return new UserResponseDto(user.getName(), user.getEmail(), user.getDepartments());
+        return new UserResponseDto(user.getName(), user.getEmail(), new HashSet<>(user.getDepartments()));
     }
 
     @Transactional(readOnly = true)
     public Set<String> getDepartmentsByEmail(String email) {
         User user = findUserByEmail(email);
         log.debug("[SVC][DEPTS] 조회: email={}, count={}", email, user.getDepartments().size());
-        return user.getDepartments();
+        return new HashSet<>(user.getDepartments());
     }
 
     @Transactional

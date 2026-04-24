@@ -45,7 +45,7 @@ public class KeywordService {
     private boolean retagOnStart;
 
     private Set<String> cachedGlobalNorms;
-    private void refreshGlobalCache() {
+    public void refreshGlobalCache() {
         this.cachedGlobalNorms = keywordRepo.findAllByScope(Scope.GLOBAL).stream()
                 .map(Keyword::getPhrase)
                 .map(KeywordService::normalizeForCompare)
@@ -140,6 +140,39 @@ public class KeywordService {
                 .forEach(managed.getKeywords()::add);
 
         // 4) 명시적으로 저장 (더티 체킹 보장)
+        noticeRepo.save(managed);
+    }
+
+    /** 캐시된 전역 키워드 정규화 phrase를 이용해notice 태깅 */
+    @Transactional
+    public void tagNoticeByCachedNorms(Notice managed) {
+        if (cachedGlobalNorms == null) {
+            refreshGlobalCache();
+        }
+        final String title = Optional.ofNullable(managed.getTitle()).orElse("");
+
+        Set<String> matchedNorms = cachedGlobalNorms.stream()
+                .filter(norm -> containsIgnoreCase(title, norm))
+                .collect(Collectors.toSet());
+
+        managed.getKeywords().removeIf(k -> {
+            if (k.getScope() == Scope.GLOBAL) return true;
+            if (k.getScope() == Scope.USER) {
+                String userNorm = normalizeForCompare(k.getPhrase());
+                if (matchedNorms.contains(userNorm)) {
+                    log.debug("[Keyword] 개인→전역 덮어쓰기: noticeId={}, phrase={}",
+                            managed.getId(), k.getPhrase());
+                    return true;
+                }
+            }
+            return false;
+        });
+
+        cachedGlobalNorms.stream()
+                .filter(norm -> containsIgnoreCase(title, norm))
+                .map(phrase -> Keyword.builder().phrase(phrase).scope(Scope.GLOBAL).build())
+                .forEach(managed.getKeywords()::add);
+
         noticeRepo.save(managed);
     }
 
@@ -370,9 +403,11 @@ public class KeywordService {
                         "noticeId"
                 ));
 
-        // 1) 전역 키워드 태깅(검색 캐시 유지)
-        final List<Keyword> globals = keywordRepo.findAllByScope(Scope.GLOBAL);
-        tagNoticeWithGlobalKeywords(n, globals);
+        // 1) 전역 키워드 태깅(캐시 사용 - fanout cycle마다 한 번 갱신)
+        if (cachedGlobalNorms == null) {
+            refreshGlobalCache();
+        }
+        tagNoticeByCachedNorms(n);
 
         final String title = Optional.ofNullable(n.getTitle()).orElse("");
         final String link  = n.getLink();

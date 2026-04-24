@@ -27,6 +27,15 @@
       "agent": "Sisyphus-Junior",
       "category": "quick",
       "updated_at": "2026-04-24T09:50:42.308Z"
+    },
+    "todo:6": {
+      "task_key": "todo:6",
+      "task_label": "6",
+      "task_title": "FORCE_BACKFILL Configurable",
+      "session_id": "ses_24117df69ffe0gs1EmmxZ1m9JY",
+      "agent": "Sisyphus-Junior",
+      "category": "quick",
+      "updated_at": "2026-04-24T10:02:44.286Z"
     }
   }
 }

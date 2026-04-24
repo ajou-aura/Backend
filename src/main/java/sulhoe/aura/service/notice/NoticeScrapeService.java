@@ -2,6 +2,7 @@ package sulhoe.aura.service.notice;
 
 import lombok.RequiredArgsConstructor;
 import org.jsoup.Connection;
+import org.springframework.beans.factory.annotation.Value;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
@@ -36,7 +37,8 @@ public class NoticeScrapeService {
     private static final int MAX_BACKOFF_MS = 6_000;
 
     // DB에 없는 공지를 모두 채우는(backfill) 모드 강제 여부
-    private static final boolean FORCE_BACKFILL_MISSING = true;
+    @Value("${app.notice.force-backfill:false}")
+    private boolean forceBackfill;
 
     // 무한루프 방지(사이트가 마지막 페이지에서 같은 목록을 계속 반환하는 경우 등)
     private static final int MAX_TOTAL_PAGES_FAILSAFE = 5000;
@@ -61,7 +63,7 @@ public class NoticeScrapeService {
     /** 최상위에서 예외 전파하지 않음(스케줄러 계속 순회) */
     public void scrapeNotices(String url, String type) {
         try {
-            boolean backfillMissing = FORCE_BACKFILL_MISSING;
+            boolean backfillMissing = forceBackfill;
             boolean fullLoad = backfillMissing || shouldDoFullLoad(type);
 
             logger.info("[{}] ========== SCRAPE START: fullLoad={}, backfillMissing={} ==========",

@@ -16,6 +16,7 @@ public class NoticeFanoutService {
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void sendNotifications(List<Notice> notices, String type) {
+        keywordService.refreshGlobalCache(); // refresh once per fanout cycle
         for (Notice n : notices) {
             try {
                 keywordService.onNoticeSaved(n, type);

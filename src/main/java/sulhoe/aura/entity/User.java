@@ -32,7 +32,7 @@ public class User {
     @Column(nullable = false, length = 20)
     private Role role = Role.USER;
 
-    @ElementCollection(fetch = FetchType.EAGER)
+    @ElementCollection(fetch = FetchType.LAZY)
     @CollectionTable(
             name = "user_departments",
             joinColumns = @JoinColumn(name = "user_id")

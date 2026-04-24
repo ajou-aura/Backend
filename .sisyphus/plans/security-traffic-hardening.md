@@ -901,7 +901,7 @@ Scenario: Refresh token stored as hash, not plaintext
   - Files: `KeywordService.java`, test files
   - Pre-commit: `./gradlew test`
 
-- [ ] 9. Notice Persistence Batch Optimization
+- [x] 9. Notice Persistence Batch Optimization
 
   **What to do**:
   - RED: Write test that verifies `findByLinkIn` is called once per chunk (not `findByLink` per notice). Write test that `existsByLink` is no longer called before `saveOrUpdateOne`.
@@ -977,7 +977,7 @@ Scenario: Refresh token stored as hash, not plaintext
   - Files: `NoticeScrapeService.java`, `NoticePersistenceService.java`, `NoticeRepository.java`, test files
   - Pre-commit: `./gradlew test`
 
-- [ ] 10. FCM Batch Sending
+- [x] 10. FCM Batch Sending
 
   **What to do**:
   - RED: Write test that verifies `FirebaseMessaging.sendEach` (or `sendMulticast`) is called instead of individual `send` calls when sending to multiple users.
@@ -1055,7 +1055,7 @@ Scenario: Refresh token stored as hash, not plaintext
   - Files: `PushNotificationService.java`, `KeywordService.java`, test files
   - Pre-commit: `./gradlew test`
 
-- [ ] 11. Security Integration Test Suite
+- [x] 11. Security Integration Test Suite
 
   **What to do**:
   - Create comprehensive integration tests that verify the security changes work together end-to-end:

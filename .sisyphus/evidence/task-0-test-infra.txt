@@ -1,0 +1,9 @@
+T0 Test Infrastructure Setup - COMPLETED
+Date: 2026년  4월 24일 금요일 18시 28분 48초 KST
+Tests Run: SecurityTestConfig (3 tests)
+Result: ALL PASSED
+Files Modified:
+- build.gradle (added H2 dependency)
+- src/test/resources/application-test.properties (H2 config)
+- src/test/java/sulhoe/aura/config/SecurityTestConfig.java (base test class)
+- src/main/java/sulhoe/aura/config/FirebaseConfig.java (fixed duplicate code)

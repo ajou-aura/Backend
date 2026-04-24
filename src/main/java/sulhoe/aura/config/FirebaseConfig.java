@@ -6,18 +6,19 @@ import com.google.firebase.FirebaseOptions;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
 
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Base64;
 
 @Configuration
+@Profile("!test")
 public class FirebaseConfig {
 
     @Value("${firebase.service.account.json}")
     private String serviceAccountJson;
 
-    // 환경에 따라 base64로 넘기기 쉬워서 토글 제공(기본 false)
     @Value("${firebase.service.account.json.base64:false}")
     private boolean serviceAccountJsonIsBase64;
 
@@ -46,7 +47,6 @@ public class FirebaseConfig {
     }
 
     private boolean looksLikeBase64(String s) {
-        // 아주 느슨한 휴리스틱: base64 문자군 + 패딩 포함
-        return s.matches("^[A-Za-z0-9+/=\\r\\n]+$") && s.length() > 100;
+        return s.matches("^[A-Za-z0-9+/=\r\n]+$") && s.length() > 100;
     }
 }

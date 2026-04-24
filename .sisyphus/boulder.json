@@ -1,0 +1,23 @@
+{
+  "active_plan": "/Users/zerogod/Projects/aura/Backend/.sisyphus/plans/security-traffic-hardening.md",
+  "started_at": "2026-04-24T08:40:42.160Z",
+  "session_ids": [
+    "ses_280fb0153ffegsBVDt8qRmAs9e"
+  ],
+  "session_origins": {
+    "ses_280fb0153ffegsBVDt8qRmAs9e": "direct"
+  },
+  "plan_name": "security-traffic-hardening",
+  "agent": "atlas",
+  "task_sessions": {
+    "todo:0": {
+      "task_key": "todo:0",
+      "task_label": "0",
+      "task_title": "Test Infrastructure Setup",
+      "session_id": "ses_24157a58fffe0i7lBttXX6NXVL",
+      "agent": "Sisyphus-Junior",
+      "category": "quick",
+      "updated_at": "2026-04-24T09:13:18.283Z"
+    }
+  }
+}

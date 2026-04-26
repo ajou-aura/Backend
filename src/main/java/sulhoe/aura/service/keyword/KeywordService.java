@@ -168,9 +168,10 @@ public class KeywordService {
             return false;
         });
 
-        cachedGlobalNorms.stream()
-                .filter(norm -> containsIgnoreCase(title, norm))
-                .map(phrase -> Keyword.builder().phrase(phrase).scope(Scope.GLOBAL).build())
+        // Use managed Keyword entities from DB instead of creating transient instances,
+    // which would cause TransientObjectException on flush.
+    keywordRepo.findAllByScope(Scope.GLOBAL).stream()
+                .filter(k -> matchedNorms.contains(normalizeForCompare(k.getPhrase())))
                 .forEach(managed.getKeywords()::add);
 
         noticeRepo.save(managed);

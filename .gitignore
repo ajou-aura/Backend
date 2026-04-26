@@ -37,3 +37,7 @@ out/
 .vscode/
 .env
 .omx/
+
+# Firebase/Google Service Account Keys
+serviceAccountKey.json
+*.serviceAccountKey.json

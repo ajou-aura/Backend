@@ -1,0 +1,30 @@
+=== T1: Admin RBAC - QA Evidence ===
+Date: 2026-04-24
+
+## Test 1: Regular user → 403 on admin endpoint
+Test Class: AdminPushControllerSecurityTest.regularUserGetsForbiddenOnAdminTopicEndpoint
+Test Class: SecurityIntegrationTest.regularUserGetsForbiddenOnAdminEndpoint
+
+Result: PASS
+- POST /api/admin/push/topic with Bearer token containing ROLE_USER
+- Expected: 403 Forbidden with code "FORBIDDEN"
+- Actual: 403 Forbidden with code "FORBIDDEN" and message "Forbidden"
+- PushNotificationService.sendToTopic was NOT called (verified via verifyNoInteractions)
+
+## Test 2: Admin user → 200 on admin endpoint
+Test Class: AdminPushControllerSecurityTest.adminUserCanAccessAdminTopicEndpoint
+Test Class: SecurityIntegrationTest.adminUserCanAccessAdminEndpoint
+
+Result: PASS
+- POST /api/admin/push/topic with Bearer token containing ROLE_ADMIN
+- Expected: 200 OK
+- Actual: 200 OK with success response
+- PushNotificationService.sendToTopic called with correct args
+
+## Implementation Details
+- SecurityConfig: `.requestMatchers("/api/admin/**").hasRole("ADMIN")`
+- JwtAuthenticationFilter: reads `role` from JWT claim, sets `ROLE_ADMIN` or `ROLE_USER` authority
+- User entity: `role` field with `Role` enum (USER, ADMIN), default USER
+- AdminPushController: no more email whitelist check, no RuntimeException
+
+VERDICT: PASS (2/2 scenarios verified)

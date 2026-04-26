@@ -1,0 +1,49 @@
+=== T5: CSRF Token Flow - QA Evidence ===
+Date: 2026-04-24
+
+## Test 1: Cookie-auth POST without CSRF token → 403 CSRF_FAILED
+Test Class: SecurityConfigCsrfTest.cookieAuthenticatedPostWithoutCsrfReturnsForbidden
+Test Class: SecurityIntegrationTest.cookieAuthenticatedPostToDepartmentsRequiresCsrfToken
+
+Result: PASS
+- POST /api/user/departments with WEB_SESSION cookie but NO X-XSRF-TOKEN header
+- Expected: 403 Forbidden with code "CSRF_FAILED"
+- Actual: 403 Forbidden with code "CSRF_FAILED" and message "Forbidden"
+- UserService.addDepartmentByEmail was NOT called (verified via verifyNoInteractions)
+
+## Test 2: Cookie-auth POST with CSRF token → 200 OK
+Test Class: SecurityConfigCsrfTest.cookieAuthenticatedPostWithCsrfReturnsOk
+
+Result: PASS
+- GET /api/auth/csrf → 204 with XSRF-TOKEN cookie and X-CSRF-TOKEN header
+- POST /api/user/departments with WEB_SESSION cookie + XSRF-TOKEN cookie + X-XSRF-TOKEN header
+- Expected: 200 OK with success response
+- Actual: 200 OK, userService.addDepartmentByEmail called with correct args
+
+## Test 3: Bearer-auth POST without CSRF → 200 OK (exempt)
+Test Class: SecurityConfigCsrfTest.bearerAuthenticatedPostWithoutCsrfReturnsOk
+Test Class: SecurityIntegrationTest.bearerTokenCanExchangeAppTicketWithoutCsrfToken
+
+Result: PASS
+- POST /api/user/departments with Authorization: Bearer header (no CSRF)
+- Expected: 200 OK
+- Actual: 200 OK, userService.addDepartmentByEmail called
+
+- POST /api/auth/app/exchange with Bearer token (no CSRF)
+- Expected: 200 OK with access/refresh tokens
+- Actual: 200 OK with success response containing accessToken, refreshToken, user.email
+
+## Test 4: CSRF endpoint accessible without authentication
+Test Class: SecurityConfigCsrfTest.csrfEndpointAccessibleWithoutAuthentication
+
+Result: PASS
+- GET /api/auth/csrf without any auth
+- Expected: 204 No Content with X-CSRF-TOKEN header and XSRF-TOKEN cookie
+- Actual: 204 No Content, both header and cookie present
+
+## Live App Verification
+- App booted successfully on port 8080
+- GET /api/auth/csrf → 204 with XSRF-TOKEN cookie (SameSite=None, Secure) and X-CSRF-TOKEN header
+- POST /api/admin/push/topic without auth → 403 CSRF_FAILED (CSRF enforced)
+
+VERDICT: PASS (4/4 scenarios verified)

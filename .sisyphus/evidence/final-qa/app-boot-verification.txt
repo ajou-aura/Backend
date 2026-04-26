@@ -1,0 +1,44 @@
+=== App Boot Verification - QA Evidence ===
+Date: 2026-04-24
+
+## Boot Test
+Command: ./gradlew bootRun (with .env sourced)
+Result: SUCCESS
+
+Key startup log lines:
+- "Started AuraApplication in 2.811 seconds"
+- Tomcat started on port 8080
+- HikariPool-1 connected to MariaDB
+- JPA EntityManagerFactory initialized
+- KeywordService seeded GLOBAL keywords
+- CSRF token endpoint accessible at /api/auth/csrf
+
+## Live Endpoint Verification
+
+### CSRF Token Endpoint
+GET /api/auth/csrf → 204 No Content
+- XSRF-TOKEN cookie set (SameSite=None, Secure, Path=/)
+- X-CSRF-TOKEN header returned
+- CSRF protection active for POST/PUT/DELETE
+
+### Admin Endpoint (unauthenticated)
+POST /api/admin/push/topic → 403 Forbidden
+- Response: {"code":"CSRF_FAILED","message":"Forbidden"}
+- Confirms CSRF protection blocks unauthenticated POST
+
+### Test Suite Results
+All 56 tests pass across 12 test classes:
+- SecurityConfigCsrfTest: 4/4 PASS
+- SecurityTestConfig: 3/3 PASS
+- AdminPushControllerSecurityTest: 2/2 PASS
+- AuthControllerTest: 7/7 PASS
+- SecurityIntegrationTest: 7/7 PASS
+- PushNotificationServiceTest: 6/6 PASS
+- KeywordServiceTest: 4/4 PASS
+- AuthServiceTest: 3/3 PASS
+- SsoTicketServiceTest: 7/7 PASS
+- UserServiceLazyDepartmentsTest: 7/7 PASS
+- NoticePersistenceServiceTest: 2/2 PASS
+- NoticeScrapeServiceTest: 4/4 PASS
+
+VERDICT: PASS

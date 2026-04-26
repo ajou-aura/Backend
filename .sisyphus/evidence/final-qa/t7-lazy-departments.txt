@@ -1,0 +1,51 @@
+=== T7: User.departments LAZY Loading - QA Evidence ===
+Date: 2026-04-24
+
+## Test 1: Departments accessible inside @Transactional
+Test Class: UserServiceLazyDepartmentsTest.getUserInfoByEmail_returnsDepartmentsInsideTransaction
+Test Class: UserServiceLazyDepartmentsTest.getDepartmentsByEmail_returnsAllDepartmentsInsideTransaction
+
+Result: PASS
+- User with departments ["컴퓨터공학과", "전자공학과"] created
+- getUserInfoByEmail() returns DTO with departments
+- getDepartmentsByEmail() returns Set with both departments
+- No LazyInitializationException
+
+## Test 2: LazyInitializationException outside transaction
+Test Class: UserServiceLazyDepartmentsTest.accessingDepartmentsOutsideTransaction_throwsLazyInitializationException
+
+Result: PASS
+- Loaded User entity inside transaction, detached it
+- Called detachedUser.getDepartments().size() outside transaction
+- Expected: LazyInitializationException
+- Actual: LazyInitializationException thrown
+
+## Test 3: Departments accessible inside transaction
+Test Class: UserServiceLazyDepartmentsTest.accessingDepartmentsInsideTransaction_doesNotThrow
+
+Result: PASS
+- Accessed departments inside @Transactional boundary
+- No exception, departments loaded correctly
+
+## Test 4: API response shape unchanged
+Test Class: UserServiceLazyDepartmentsTest.getUserInfoByEmail_responseShapeIncludesDepartments
+
+Result: PASS
+- getUserInfoByEmail() returns DTO with departments array
+- departments field is not null, has size 2
+- Same JSON shape as before LAZY change
+
+## Test 5: Add/remove departments work
+Test Class: UserServiceLazyDepartmentsTest.addDepartmentByEmail_persistsNewDepartment
+Test Class: UserServiceLazyDepartmentsTest.removeDepartmentByEmail_removesDepartment
+
+Result: PASS
+- addDepartmentByEmail adds department, size increases
+- removeDepartmentByEmail removes department, size decreases
+
+## Implementation Details
+- User.departments: @ElementCollection(fetch = FetchType.LAZY)
+- UserService methods use @Transactional(readOnly = true) for reads
+- UserResponseDto projection used for API responses (no direct entity serialization)
+
+VERDICT: PASS (5/5 scenarios verified)

@@ -1,0 +1,63 @@
+=== T10: FCM Batch Sending - QA Evidence ===
+Date: 2026-04-24
+
+## Test 1: sendEach called once for multiple users (not individual send)
+Test Class: PushNotificationServiceTest.sendToUserTopics_callsSendEach_onceForMultipleUsers
+
+Result: PASS
+- 3 emails provided to sendToUserTopics()
+- FirebaseMessaging.sendEach() called exactly 1 time
+- FirebaseMessaging.send() called 0 times (never)
+- Batched approach confirmed
+
+## Test 2: All messages passed in single batch
+Test Class: PushNotificationServiceTest.sendToUserTopics_passesAllMessagesInSingleBatch
+
+Result: PASS
+- 2 emails provided
+- sendEach() called with list of 2 Message objects
+- All messages batched in single call
+
+## Test 3: Partial failure handled gracefully
+Test Class: PushNotificationServiceTest.sendToUserTopics_logsFailures_doesNotThrow
+
+Result: PASS
+- FirebaseMessaging.sendEach() throws FirebaseMessagingException
+- sendToUserTopics() does NOT throw exception
+- App continues operating after FCM failure
+
+## Test 4: Empty list does not call sendEach
+Test Class: PushNotificationServiceTest.sendToUserTopics_emptyList_doesNotCallSendEach
+
+Result: PASS
+- Empty email list provided
+- sendEach() called 0 times
+- send() called 0 times
+- No unnecessary API calls
+
+## Test 5: Batching in groups of 500
+Test Class: PushNotificationServiceTest.sendToUserTopics_batchesInGroupsOf500
+
+Result: PASS
+- 501 emails provided
+- sendEach() called 2 times (batch of 500 + batch of 1)
+- First batch: 500 messages
+- Second batch: 1 message
+- FCM_BATCH_SIZE = 500 enforced
+
+## Test 6: Blank/null emails filtered
+Test Class: PushNotificationServiceTest.sendToUserTopics_skipsBlankEmails
+
+Result: PASS
+- 5 emails provided (2 valid, 3 blank/null/whitespace)
+- sendEach() called with 2 messages only
+- Invalid emails filtered before FCM call
+
+## Implementation Details
+- PushNotificationService.sendToUserTopics(List<String> emails, ...) uses sendInBatches()
+- sendInBatches() chunks messages into groups of FCM_BATCH_SIZE (500)
+- Each batch calls FirebaseMessaging.sendEach()
+- Failures logged via logBatchFailures() with per-message error details
+- No retry queue (as per guardrails)
+
+VERDICT: PASS (6/6 scenarios verified)

@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.util.HtmlUtils;
 import org.springframework.web.util.UriComponentsBuilder;
 import sulhoe.aura.config.JwtTokenProvider;
+import sulhoe.aura.config.OAuthProperties;
 import sulhoe.aura.dto.ApiResponse;
 import sulhoe.aura.dto.login.AppExchangeRequestDto;
 import sulhoe.aura.dto.login.AppExchangeResponseDto;
@@ -36,12 +37,7 @@ public class AuthController {
     private final JwtTokenProvider jwt;
     private final SsoTicketService ssoTicketService;
     private final SsoTokenExchangeService ssoTokenExchangeService;
-
-    @Value("${oauth.google.client-id}")
-    private String clientId;
-
-    @Value("${oauth.google.redirect-uri}")
-    private String redirectUri;
+    private final OAuthProperties oauthProperties;
 
     // 프론트엔드 리다이렉트 주소 (: http://localhost:3000)
     @Value("${app.frontend-url}")
@@ -117,22 +113,28 @@ public class AuthController {
         return "none";
     }
 
-    // 구글 로그인 시작: ?mode=app | web
+    // 구글 로그인 시작: ?mode=web | android | ios | app (app is treated as android)
     @GetMapping("/google")
     public void redirectToGoogle(@RequestParam(defaultValue = "web") String mode,
                                  HttpServletResponse res) throws IOException {
-        String nonce = ssoTicketService.generateStateNonce(mode);
+        // Normalize mode: "app" is treated as "android" for backward compatibility
+        String normalizedMode = "app".equalsIgnoreCase(mode) ? "android" : mode;
+
+        OAuthProperties.ClientConfig config = oauthProperties.resolve(normalizedMode);
+
+        String nonce = ssoTicketService.generateStateNonce(normalizedMode);
         String state = java.util.Base64.getUrlEncoder().withoutPadding()
-                .encodeToString((nonce + ":" + mode).getBytes(StandardCharsets.UTF_8));
+                .encodeToString((nonce + ":" + normalizedMode).getBytes(StandardCharsets.UTF_8));
 
         String url = UriComponentsBuilder.fromUriString("https://accounts.google.com/o/oauth2/v2/auth")
-                .queryParam("client_id", clientId)
-                .queryParam("redirect_uri", redirectUri)
+                .queryParam("client_id", config.getClientId())
+                .queryParam("redirect_uri", config.getRedirectUri())
                 .queryParam("response_type", "code")
                 .queryParam("scope", "openid email profile")
                 .queryParam("state", state)
                 .build().toUriString();
-        log.debug("[CTRL] Redirecting to Google OAuth URL: {}", url);
+        log.debug("[CTRL] Redirecting to Google OAuth URL for platform '{}': redirectUri={}",
+                normalizedMode, config.getRedirectUri());
         res.sendRedirect(url);
     }
 
@@ -155,9 +157,9 @@ public class AuthController {
             }
 
             String mode = resolveAndValidateState(state);
-            LoginResponseDto dto = authService.loginWithGoogle(code);
+            LoginResponseDto dto = authService.loginWithGoogle(code, mode);
 
-            if ("app".equals(mode)) {
+            if ("android".equals(mode) || "ios".equals(mode) || "app".equals(mode)) {
                 String email = jwt.getEmail(dto.accessToken());
                 String name  = jwt.getName(dto.accessToken());
                 String ticket = ssoTicketService.issue(email, name, dto.signUp());
@@ -180,7 +182,7 @@ public class AuthController {
 
         } catch (ApiException e) {
             String mode = resolveModeFromState(state);
-            if ("app".equals(mode)) {
+            if ("android".equals(mode) || "ios".equals(mode) || "app".equals(mode)) {
                 String target = UriComponentsBuilder.fromUriString("aura://oauth-callback")
                         .queryParam("error", e.getErrorCode())
                         .queryParam("status", e.getStatus().value())
@@ -203,11 +205,11 @@ public class AuthController {
             res.sendRedirect(target);
         } catch (Exception e) {
             String mode = resolveModeFromState(state);
-            if ("app".equals(mode)) {
+            if ("android".equals(mode) || "ios".equals(mode) || "app".equals(mode)) {
                 String deeplink = UriComponentsBuilder.fromUriString("aura://oauth-callback")
                         .queryParam("error", "INTERNAL_SERVER_ERROR")
                         .queryParam("status", 500)
-                        .queryParam("message", "서버 내부 오류가 발생했습니다.")
+                        .queryParam("message", "서버 낵부 오류가 발생했습니다.")
                         .build()
                         .encode(StandardCharsets.UTF_8)
                         .toUriString();
@@ -218,10 +220,11 @@ public class AuthController {
                     .path("/auth/error")
                     .queryParam("status", 500)
                     .queryParam("code", "INTERNAL_SERVER_ERROR")
-                    .queryParam("message", "서버 내부 오류가 발생했습니다.")
+                    .queryParam("message", "서버 낵부 오류가 발생했습니다.")
                     .build()
                     .encode(StandardCharsets.UTF_8)
                     .toUriString();
+
             res.sendRedirect(target);
         }
     }

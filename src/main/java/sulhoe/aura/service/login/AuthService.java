@@ -51,10 +51,10 @@ public class AuthService {
     }
 
     @Transactional
-    public LoginResponseDto loginWithGoogle(String code) {
-        log.debug("[AUTH] loginWithGoogle, code={}", code);
+    public LoginResponseDto loginWithGoogle(String code, String platform) {
+        log.debug("[AUTH] loginWithGoogle, code={}, platform={}", code, platform);
 
-        var info = googleOAuthService.getUserInfoFromCode(code);
+        var info = googleOAuthService.getUserInfoFromCode(code, platform);
         log.debug("[AUTH] Google user info: name={} email={} dept={}",
                 info.name(), info.email(), info.department());
 

@@ -1,0 +1,52 @@
+=== T4: SSO Ticket Store Bounds - QA Evidence ===
+Date: 2026-04-24
+
+## Test 1: 10,001st ticket rejected at capacity
+Test Class: SsoTicketServiceTest.ticket10001IsRejectedAtCapacity
+Test Class: SecurityIntegrationTest.ssoTicketBoundsRejectTicket10001AndCleanupReclaimsExpiredCapacity
+
+Result: PASS
+- Created 10,000 tickets via SsoTicketService.issue()
+- Attempted to create ticket 10,001
+- Expected: IllegalStateException with message "Ticket store at capacity"
+- Actual: IllegalStateException thrown with message "Ticket store at capacity"
+
+## Test 2: Expired tickets evicted by cleanup
+Test Class: SecurityIntegrationTest.ssoTicketBoundsRejectTicket10001AndCleanupReclaimsExpiredCapacity
+
+Result: PASS
+- After filling store to 10,000, manually expired one ticket
+- Called ssoTicketService.cleanupExpired()
+- Store size reduced from 10,000 to 9,999
+- New ticket creation succeeded after cleanup
+
+## Test 3: Basic issue/consume works
+Test Class: SsoTicketServiceTest.issueAndConsumeWorks
+
+Result: PASS
+- Created ticket, consumed it, verified payload (email, name, signUp)
+
+## Test 4: Consumed ticket invalidated
+Test Class: SsoTicketServiceTest.consumeInvalidatesUsedTicket
+
+Result: PASS
+- Created ticket, consumed once → success
+- Consumed same ticket again → null (invalidated)
+
+## Test 5: State nonce works
+Test Class: SsoTicketServiceTest.generateAndConsumeStateNonceWorks
+Test Class: SsoTicketServiceTest.consumeStateNonceReturnsNullForNonexistent
+Test Class: SsoTicketServiceTest.consumeStateNonceReturnsNullForUsedNonce
+
+Result: PASS
+- generateStateNonce("web") → valid nonce
+- consumeStateNonce(nonce) → "web"
+- consumeStateNonce(nonce) again → null (one-time use)
+- consumeStateNonce("nonexistent") → null
+
+## Implementation Details
+- SsoTicketService: MAX_SIZE = 10,000
+- @Scheduled(fixedDelay = 60_000) cleanupExpired() removes expired entries
+- Both ticket store and state nonce store are bounded and cleaned
+
+VERDICT: PASS (5/5 scenarios verified)

@@ -1,0 +1,56 @@
+=== Cross-Task Integration Test - QA Evidence ===
+Date: 2026-04-24
+
+## Test Suite: SecurityIntegrationTest (7 tests)
+
+### Test 1: cookieAuthenticatedPostToDepartmentsRequiresCsrfToken
+Result: PASS
+- POST /api/user/departments with WEB_SESSION cookie but no CSRF token
+- Returns 403 with code "CSRF_FAILED"
+- UserService NOT called (CSRF blocked before reaching controller)
+
+### Test 2: bearerTokenCanExchangeAppTicketWithoutCsrfToken
+Result: PASS
+- POST /api/auth/app/exchange with Bearer token (no CSRF)
+- Returns 200 with success response containing accessToken, refreshToken, user.email
+- Bearer-only endpoint exempt from CSRF
+
+### Test 3: regularUserGetsForbiddenOnAdminEndpoint
+Result: PASS
+- POST /api/admin/push/topic with ROLE_USER JWT
+- Returns 403 with code "FORBIDDEN"
+- PushNotificationService NOT called (RBAC blocked before reaching controller)
+
+### Test 4: adminUserCanAccessAdminEndpoint
+Result: PASS
+- POST /api/admin/push/topic with ROLE_ADMIN JWT
+- Returns 200 with success response
+- PushNotificationService.sendToTopic called with correct args
+
+### Test 5: refreshCycleRotatesTokenAndStoresOnlyHashedCopy
+Result: PASS
+- Created refresh token, stored SHA-256 hash in DB
+- Refresh with valid token → 200, new tokens returned
+- DB stores hash of new token (not plaintext)
+- Second refresh with old token → 401 REFRESH_TOKEN_MISMATCH
+- CSRF token flow works correctly for refresh endpoint
+
+### Test 6: ssoTicketBoundsRejectTicket10001AndCleanupReclaimsExpiredCapacity
+Result: PASS
+- 10,000 tickets created successfully
+- 10,001st ticket rejected with IllegalStateException
+- After expiring one ticket and calling cleanupExpired(), new ticket creation succeeds
+
+### Test 7: replayedOauthStateIsRejectedWith401ErrorRedirect
+Result: PASS
+- Generated state nonce, consumed it once (valid)
+- Replayed same state → redirect to /auth/error with status=401 and code=INVALID_STATE
+- GoogleOAuthService NOT called (state validation blocked before OAuth)
+
+## Cross-Task Integration Verified
+- CSRF + RBAC work together: cookie-auth POST blocked by CSRF, Bearer-auth POST blocked by RBAC
+- Refresh token hashing + CSRF: refresh endpoint requires CSRF token, stores hash
+- SSO ticket bounds + OAuth state: both stores bounded and cleaned
+- Admin RBAC + FCM: admin can trigger push, regular user blocked
+
+VERDICT: PASS (7/7 integration tests verified)

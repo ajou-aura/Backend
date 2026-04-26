@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.reactive.function.client.WebClient;
+import sulhoe.aura.config.OAuthProperties;
 import sulhoe.aura.dto.user.OAuthUserInfo;
 import sulhoe.aura.handler.ApiException;
 
@@ -25,13 +26,7 @@ import java.util.Locale;
 public class GoogleOAuthService {
     private final WebClient googleWebClient;
     private final ObjectMapper om;
-
-    @Value("${oauth.google.client-id}")
-    private String clientId;
-    @Value("${oauth.google.client-secret}")
-    private String clientSecret;
-    @Value("${oauth.google.redirect-uri}")
-    private String redirectUri;
+    private final OAuthProperties oauthProperties;
 
     @Value("${app.auth.allowed-domains:ajou.ac.kr}")
     private String allowedDomainsCsv;
@@ -44,12 +39,18 @@ public class GoogleOAuthService {
                 .anyMatch(lower::endsWith); // endsWith("@ajou.ac.kr") 포함
     }
 
-    public OAuthUserInfo getUserInfoFromCode(String code) {
+    public OAuthUserInfo getUserInfoFromCode(String code, String platform) {
+        // Resolve platform-specific OAuth configuration
+        OAuthProperties.ClientConfig config = oauthProperties.resolve(platform);
+
         MultiValueMap<String, String> form = new LinkedMultiValueMap<>();
-        form.add("client_id", clientId);
-        form.add("client_secret", clientSecret);
+        form.add("client_id", config.getClientId());
+        // Android/iOS clients don't have client secrets - only add if present
+        if (config.getClientSecret() != null && !config.getClientSecret().isBlank()) {
+            form.add("client_secret", config.getClientSecret());
+        }
         form.add("code", code);
-        form.add("redirect_uri", redirectUri);
+        form.add("redirect_uri", config.getRedirectUri());
         form.add("grant_type", "authorization_code");
 
         String tokenJson = googleWebClient.post()

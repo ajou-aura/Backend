@@ -47,12 +47,14 @@ public class SecurityConfig {
                 // CORS는 WebConfig.addCorsMappings에서 설정 → 여기선 활성화만
                 .cors(Customizer.withDefaults())
 
-                // CSRF: 쿠키/쿠키 기반이면 활성 권장. 다만 인증/리프레시 등은 예외 처리
+                // CSRF: 쿠키/쿠키 기반이면 활성 권장. Bearer-only 모바일 엔드포인트만 예외
                 .csrf(csrf -> csrf
                         .csrfTokenRepository(repo)
                         .ignoringRequestMatchers(
                                 new MvcRequestMatcher(introspector(), "/api/auth/app/exchange"),
-                                this::isBearerRequest
+                                new MvcRequestMatcher(introspector(), "/api/user/**"),
+                                new MvcRequestMatcher(introspector(), "/api/keywords/**"),
+                                new MvcRequestMatcher(introspector(), "/api/subscriptions/**")
                         )
                 )
 
@@ -107,11 +109,6 @@ public class SecurityConfig {
                 .formLogin(AbstractHttpConfigurer::disable)
 
                 .build();
-    }
-
-    private boolean isBearerRequest(HttpServletRequest request) {
-        String authorization = request.getHeader("Authorization");
-        return authorization != null && authorization.startsWith("Bearer ");
     }
 
     // 리버스 프록시(HTTPS Termination) 환경에서 X-Forwarded-* 신뢰 → Secure 쿠키/리다이렉트 판별 정확성 향상

@@ -79,7 +79,7 @@ public class NoticeScrapeService {
             // 1) 첫 페이지 고정 공지
             Document doc = fetchWithLog(url, type + ":first");
             if (doc == null) {
-                logger.warn("[{}] 첫 페이지 fetch 실패 → 이 타입은 이번 라운드 건너뜀", type);
+                logger.warn("[{}] 첫 페이지 fetch 실패 → 이 타입은 이번 라운드 건어뜀", type);
                 return;
             }
             Elements fixedRows = parser.selectFixedRows(doc);
@@ -105,6 +105,7 @@ public class NoticeScrapeService {
             int step = parser.getStep();
             int pagesFetched = 0;
             int consecutiveEmptyPages = 0;
+            int consecutiveFullExistingChunks = 0;
 
             // 같은 페이지 반복 감지용 지문(무한루프 방지)
             Set<String> pageFingerprints = new HashSet<>();
@@ -144,6 +145,7 @@ public class NoticeScrapeService {
                 String lastLink = null;
 
                 // 행 파싱(페이지 보호막과 별개로 행 단위 방어)
+                boolean chunkFlushedInThisPage = false;
                 try {
                     for (Element row : generalRows) {
                         try {
@@ -157,7 +159,17 @@ public class NoticeScrapeService {
                             pageBufferedCount++;
 
                             if (buffer.size() >= CHUNK_SIZE) {
-                                flushChunk(buffer, type);
+                                int newOrUpdated = flushChunk(buffer, type);
+                                chunkFlushedInThisPage = true;
+                                if (!fullLoad && newOrUpdated == 0) {
+                                    consecutiveFullExistingChunks++;
+                                    if (consecutiveFullExistingChunks >= 1) {
+                                        logger.info("[{}] ✓ End: full chunk with 0 new (incremental mode)", type);
+                                        break;
+                                    }
+                                } else {
+                                    consecutiveFullExistingChunks = 0;
+                                }
                             }
                         } catch (Exception ex) {
                             logger.warn("[{}] Row parse failed (page {}): {}", type, pagesFetched + 1, ex.toString());
@@ -165,6 +177,10 @@ public class NoticeScrapeService {
                     }
                 } catch (Exception pageEx) {
                     logger.warn("[{}] Page-level parse error (page {}): {}", type, pagesFetched + 1, pageEx.toString());
+                }
+                
+                if (!fullLoad && consecutiveFullExistingChunks >= 1) {
+                    break;
                 }
 
                 if (pagesFetched == 0) dumpOnce(type, 0, pagedDoc);
@@ -294,9 +310,9 @@ public class NoticeScrapeService {
         }
     }
 
-    /** 버퍼(최대 100건)를 저장/팬아웃까지 처리 */
-    private void flushChunk(List<Notice> buffer, String type) {
-        if (buffer.isEmpty()) return;
+    /** 버퍼(최대 100건)를 저장/팬아웃까지 처리. 반환값: 새로 추가/수정된 개수 */
+    private int flushChunk(List<Notice> buffer, String type) {
+        if (buffer.isEmpty()) return 0;
         List<Notice> chunk = new ArrayList<>(buffer);
         buffer.clear();
 
@@ -311,22 +327,24 @@ public class NoticeScrapeService {
             }
         }
 
-        // 2) 저장(배치 실패해도 단건 진행되도록 내부에서 fail-soft)
+        // 2) 저장(배치 실패하도 단건 진행되도록 낶부에서 fail-soft)
         List<Notice> newOrUpdated;
         try {
             newOrUpdated = persistence.persistNotices(chunk);
             logger.info("[{}] CHUNK persisted: {} new/updated out of {}", type, newOrUpdated.size(), chunk.size());
         } catch (Exception e) {
             logger.error("[{}] CHUNK persist failed (skip this chunk): {}", type, e.toString(), e);
-            return; // 저장 실패 시 팬아웃도 건너뜀
+            return 0; // 저장 실패 시 팬아웃도 건어뜀
         }
 
-        // 3) 팬아웃(새 트랜잭션, 실패해도 다음 항목/청크 진행)
+        // 3) 팬아웃(새 트랜잭션, 실패하도 다음 항목/청크 진행)
         try {
             fanoutService.sendNotifications(newOrUpdated, type);
         } catch (Exception e) {
             // REQUIRES_NEW에서의 예외는 여기까지 오지 않는 것이 보통이지만 방어적으로 기록
             logger.error("[{}] fanout batch failed: {}", type, e.toString(), e);
         }
+
+        return newOrUpdated.size();
     }
 }

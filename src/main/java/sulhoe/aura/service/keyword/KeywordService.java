@@ -396,6 +396,8 @@ public class KeywordService {
      */
     @Transactional
     public void onNoticeSaved(Notice detachedNotice, String type) {
+        log.info("[onNoticeSaved] START - noticeId={}, type={}", detachedNotice.getId(), type);
+        
         Notice n = noticeRepo.findByIdWithKeywords(detachedNotice.getId())
                 .orElseThrow(() -> new ApiException(
                         HttpStatus.NOT_FOUND,
@@ -403,6 +405,7 @@ public class KeywordService {
                         "NOT_FOUND",
                         "noticeId"
                 ));
+        log.info("[onNoticeSaved] Loaded notice: id={}, title={}", n.getId(), n.getTitle());
 
         // 1) 전역 키워드 태깅(캐시 사용 - fanout cycle마다 한 번 갱신)
         if (cachedGlobalNorms == null) {
@@ -415,13 +418,22 @@ public class KeywordService {
 
         // 2) ALL 모드 사용자 존재 시: type 토픽 1회 발송
         List<Long> allModeUserIds = utpRepo.findAllUserIdsByTypeAndAll(type);
+        log.info("[onNoticeSaved] ALL mode users for type={}: count={}", type, allModeUserIds.size());
         if (!allModeUserIds.isEmpty()) {
+            log.info("[onNoticeSaved] Sending FCM to type topic: {}", type);
             push.sendToTypeTopic(type, title, link);
+            log.info("[onNoticeSaved] FCM sent successfully to type topic: {}", type);
+        } else {
+            log.info("[onNoticeSaved] No ALL mode users found, skipping FCM for type={}", type);
         }
 
         // 3) KEYWORD 모드 + 키워드 OR 매칭 사용자
         List<Long> keywordModeUserIds = utpRepo.findAllUserIdsByTypeAndKeyword(type);
-        if (keywordModeUserIds.isEmpty()) return;
+        log.info("[onNoticeSaved] KEYWORD mode users for type={}: count={}", type, keywordModeUserIds.size());
+        if (keywordModeUserIds.isEmpty()) {
+            log.info("[onNoticeSaved] No KEYWORD mode users, returning early");
+            return;
+        }
 
         // user_type_keywords 의 (user,type,keyword) 중 keyword.phrase 가 제목에 매칭되는 사용자들 (OR)
         List<Long> matchedByTitle = utikRepo.findUserIdsByTypeAndTitleMatch(type, title);
@@ -436,10 +448,11 @@ public class KeywordService {
                     .map(User::getEmail)
                     .filter(e -> e != null && !e.isBlank())
                     .toList();
+            log.info("[onNoticeSaved] Sending FCM to {} user topics", emails.size());
             push.sendToUserTopics(emails, type, title, link);
         }
 
-        log.debug("[onNoticeSaved] type={}, ALL={} users, KEYWORD={} users, matchedTargets={}",
+        log.info("[onNoticeSaved] END - type={}, ALL={} users, KEYWORD={} users, matchedTargets={}",
                 type, allModeUserIds.size(), keywordModeUserIds.size(), targets.size());
     }
 
